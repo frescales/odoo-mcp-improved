@@ -13,11 +13,12 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY pyproject.toml ./
-RUN pip install -e .
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
 
 # Copy source code
 COPY . .
@@ -34,5 +35,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose port (will be overridden by EasyPanel)
 EXPOSE 8000
 
-# Start the HTTP server
+# Start the HTTP server (NOT the stdio server)
 CMD ["python", "app.py"]
