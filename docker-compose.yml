@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  odoo-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.http
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - ODOO_URL=${ODOO_URL:-https://your-odoo-instance.com}
+      - ODOO_DB=${ODOO_DB:-your_database}
+      - ODOO_USERNAME=${ODOO_USERNAME:-your_username}
+      - ODOO_PASSWORD=${ODOO_PASSWORD:-your_password}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ./logs:/app/logs
