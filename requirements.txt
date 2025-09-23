@@ -1,0 +1,11 @@
+# Core MCP and Odoo dependencies
+mcp>=0.1.1
+requests>=2.31.0
+pypi-xmlrpc==2020.12.3
+
+# HTTP server dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Additional utilities
+python-dotenv>=1.0.0
