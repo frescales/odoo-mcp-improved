@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 HTTP/SSE MCP Server for Odoo Integration
-Compatible with n8n MCP client tool and EasyPanel deployment
+Fully compatible with n8n MCP Client node
 """
 
 import asyncio
@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Dict, Any
+from typing import AsyncIterator, Dict, Any, List
 
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
@@ -25,6 +25,104 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Tool registry for MCP compatibility
+AVAILABLE_TOOLS = {
+    "execute_method": {
+        "name": "execute_method",
+        "description": "Execute a custom method on an Odoo model",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "model": {"type": "string", "description": "The model name (e.g., 'res.partner')"},
+                "method": {"type": "string", "description": "Method name to execute"},
+                "args": {"type": "array", "description": "Positional arguments"},
+                "kwargs": {"type": "object", "description": "Keyword arguments"}
+            },
+            "required": ["model", "method"]
+        }
+    },
+    "search_employee": {
+        "name": "search_employee",
+        "description": "Search for employees by name",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Name to search for"},
+                "limit": {"type": "integer", "description": "Maximum results", "default": 20}
+            },
+            "required": ["name"]
+        }
+    },
+    "search_holidays": {
+        "name": "search_holidays", 
+        "description": "Search for holidays within a date range",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "Start date (YYYY-MM-DD)"},
+                "end_date": {"type": "string", "description": "End date (YYYY-MM-DD)"},
+                "employee_id": {"type": "integer", "description": "Optional employee ID"}
+            },
+            "required": ["start_date", "end_date"]
+        }
+    },
+    "search_sales_orders": {
+        "name": "search_sales_orders",
+        "description": "Search sales orders with advanced filters", 
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "filters": {
+                    "type": "object",
+                    "properties": {
+                        "date_from": {"type": "string"},
+                        "date_to": {"type": "string"},
+                        "partner_id": {"type": "integer"},
+                        "state": {"type": "string"},
+                        "limit": {"type": "integer", "default": 20}
+                    }
+                }
+            },
+            "required": ["filters"]
+        }
+    },
+    "create_sales_order": {
+        "name": "create_sales_order",
+        "description": "Create a new sales order",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "order": {
+                    "type": "object",
+                    "properties": {
+                        "partner_id": {"type": "integer"},
+                        "order_lines": {"type": "array"}
+                    }
+                }
+            },
+            "required": ["order"]
+        }
+    },
+    "analyze_sales_performance": {
+        "name": "analyze_sales_performance",
+        "description": "Analyze sales performance in a period",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "params": {
+                    "type": "object",
+                    "properties": {
+                        "date_from": {"type": "string"},
+                        "date_to": {"type": "string"},
+                        "group_by": {"type": "string"}
+                    }
+                }
+            },
+            "required": ["params"]
+        }
+    }
+}
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI lifespan handler"""
@@ -35,7 +133,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # Create FastAPI app
 app = FastAPI(
     title="Odoo MCP Server",
-    description="HTTP/SSE MCP Server for Odoo Integration",
+    description="HTTP/SSE MCP Server for Odoo Integration - n8n Compatible",
     version="1.1.0",
     lifespan=lifespan
 )
@@ -52,15 +150,11 @@ app.add_middleware(
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    try:
-        return {
-            "status": "healthy", 
-            "service": "odoo-mcp-server",
-            "version": "1.1.0"
-        }
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
+    return {
+        "status": "healthy", 
+        "service": "odoo-mcp-server",
+        "version": "1.1.0"
+    }
 
 @app.get("/")
 async def root():
@@ -69,10 +163,11 @@ async def root():
         "service": "Odoo MCP Server",
         "version": "1.1.0",
         "transport": "HTTP/SSE",
+        "compatibility": "n8n MCP Client",
         "endpoints": {
             "health": "/health",
             "mcp": "/mcp",
-            "sse": "/sse",
+            "sse": "/sse", 
             "docs": "/docs"
         },
         "environment": {
@@ -83,7 +178,7 @@ async def root():
     }
 
 async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Process MCP request using the FastMCP server"""
+    """Process MCP request with n8n compatibility"""
     try:
         method = request_data.get("method", "")
         params = request_data.get("params", {})
@@ -110,43 +205,20 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
             }
             
         elif method == "tools/list":
-            # Get tools directly from FastMCP
-            tools = []
-            
-            # Access tools from the FastMCP instance
-            if hasattr(odoo_mcp_server, '_app') and hasattr(odoo_mcp_server._app, 'tool_registry'):
-                tool_registry = odoo_mcp_server._app.tool_registry
-                for tool_name, tool_info in tool_registry.items():
-                    tools.append({
-                        "name": tool_name,
-                        "description": tool_info.get("description", ""),
-                        "inputSchema": tool_info.get("input_schema", {})
-                    })
-            else:
-                # Fallback: manually list known tools
-                known_tools = [
-                    {"name": "execute_method", "description": "Execute a custom method on an Odoo model"},
-                    {"name": "search_employee", "description": "Search for employees by name"},
-                    {"name": "search_holidays", "description": "Search for holidays within a date range"},
-                    {"name": "search_sales_orders", "description": "Search sales orders with advanced filters"},
-                    {"name": "create_sales_order", "description": "Create a new sales order"},
-                    {"name": "analyze_sales_performance", "description": "Analyze sales performance in a period"},
-                    {"name": "search_purchase_orders", "description": "Search purchase orders with advanced filters"},
-                    {"name": "create_purchase_order", "description": "Create a new purchase order"},
-                    {"name": "analyze_supplier_performance", "description": "Analyze supplier performance"},
-                    {"name": "check_product_availability", "description": "Check stock availability for products"},
-                    {"name": "create_inventory_adjustment", "description": "Create inventory adjustment"},
-                    {"name": "analyze_inventory_turnover", "description": "Analyze inventory turnover"},
-                    {"name": "search_journal_entries", "description": "Search journal entries"},
-                    {"name": "create_journal_entry", "description": "Create journal entry"},
-                    {"name": "analyze_financial_ratios", "description": "Calculate financial ratios"}
-                ]
-                tools = known_tools
+            tools_list = []
+            for tool_name, tool_config in AVAILABLE_TOOLS.items():
+                tools_list.append({
+                    "name": tool_config["name"],
+                    "description": tool_config["description"],
+                    "inputSchema": tool_config["inputSchema"]
+                })
             
             response = {
                 "jsonrpc": "2.0",
                 "id": request_id,
-                "result": {"tools": tools}
+                "result": {
+                    "tools": tools_list
+                }
             }
             
         elif method == "resources/list":
@@ -155,12 +227,6 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
                     "uri": "odoo://models",
                     "name": "Odoo Models",
                     "description": "List all available models in the Odoo system",
-                    "mimeType": "application/json"
-                },
-                {
-                    "uri": "odoo://model/{model_name}",
-                    "name": "Model Info",
-                    "description": "Get detailed information about a specific model",
                     "mimeType": "application/json"
                 }
             ]
@@ -175,96 +241,80 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
             tool_name = params.get("name")
             arguments = params.get("arguments", {})
             
-            try:
-                # Create a mock context for the tool call
-                class MockContext:
-                    class MockRequestContext:
-                        class MockLifespanContext:
-                            def __init__(self):
-                                from src.odoo_mcp.odoo_client import get_odoo_client
-                                self.odoo = get_odoo_client()
-                        
-                        def __init__(self):
-                            self.lifespan_context = self.MockLifespanContext()
-                    
-                    def __init__(self):
-                        self.request_context = self.MockRequestContext()
-                
-                ctx = MockContext()
-                
-                # Import and call the appropriate function
-                if tool_name == "search_employee":
-                    from src.odoo_mcp.server import search_employee
-                    result = search_employee(ctx, **arguments)
-                elif tool_name == "search_holidays":
-                    from src.odoo_mcp.server import search_holidays
-                    result = search_holidays(ctx, **arguments)
-                elif tool_name == "execute_method":
-                    from src.odoo_mcp.server import execute_method
-                    result = execute_method(ctx, **arguments)
-                elif tool_name == "search_sales_orders":
-                    from src.odoo_mcp.tools_sales import search_sales_orders
-                    result = search_sales_orders(ctx, **arguments)
-                elif tool_name == "create_sales_order":
-                    from src.odoo_mcp.tools_sales import create_sales_order
-                    result = create_sales_order(ctx, **arguments)
-                elif tool_name == "analyze_sales_performance":
-                    from src.odoo_mcp.tools_sales import analyze_sales_performance
-                    result = analyze_sales_performance(ctx, **arguments)
-                elif tool_name == "search_purchase_orders":
-                    from src.odoo_mcp.tools_purchase import search_purchase_orders
-                    result = search_purchase_orders(ctx, **arguments)
-                elif tool_name == "create_purchase_order":
-                    from src.odoo_mcp.tools_purchase import create_purchase_order
-                    result = create_purchase_order(ctx, **arguments)
-                elif tool_name == "analyze_supplier_performance":
-                    from src.odoo_mcp.tools_purchase import analyze_supplier_performance
-                    result = analyze_supplier_performance(ctx, **arguments)
-                elif tool_name == "check_product_availability":
-                    from src.odoo_mcp.tools_inventory import check_product_availability
-                    result = check_product_availability(ctx, **arguments)
-                elif tool_name == "create_inventory_adjustment":
-                    from src.odoo_mcp.tools_inventory import create_inventory_adjustment
-                    result = create_inventory_adjustment(ctx, **arguments)
-                elif tool_name == "analyze_inventory_turnover":
-                    from src.odoo_mcp.tools_inventory import analyze_inventory_turnover
-                    result = analyze_inventory_turnover(ctx, **arguments)
-                elif tool_name == "search_journal_entries":
-                    from src.odoo_mcp.tools_accounting import search_journal_entries
-                    result = search_journal_entries(ctx, **arguments)
-                elif tool_name == "create_journal_entry":
-                    from src.odoo_mcp.tools_accounting import create_journal_entry
-                    result = create_journal_entry(ctx, **arguments)
-                elif tool_name == "analyze_financial_ratios":
-                    from src.odoo_mcp.tools_accounting import analyze_financial_ratios
-                    result = analyze_financial_ratios(ctx, **arguments)
-                else:
-                    raise ValueError(f"Unknown tool: {tool_name}")
-                
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": json.dumps(result, indent=2, default=str)
-                            }
-                        ]
-                    }
-                }
-                
-            except Exception as e:
-                logger.error(f"Tool execution error: {e}")
+            if tool_name not in AVAILABLE_TOOLS:
                 response = {
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "error": {
-                        "code": -32603,
-                        "message": f"Tool execution failed: {str(e)}"
+                        "code": -32601,
+                        "message": f"Tool not found: {tool_name}"
                     }
                 }
-                
+            else:
+                try:
+                    # Create mock context
+                    class MockContext:
+                        class MockRequestContext:
+                            class MockLifespanContext:
+                                def __init__(self):
+                                    from src.odoo_mcp.odoo_client import get_odoo_client
+                                    self.odoo = get_odoo_client()
+                            
+                            def __init__(self):
+                                self.lifespan_context = self.MockLifespanContext()
+                        
+                        def __init__(self):
+                            self.request_context = self.MockRequestContext()
+                    
+                    ctx = MockContext()
+                    
+                    # Call the appropriate function
+                    if tool_name == "search_employee":
+                        from src.odoo_mcp.server import search_employee
+                        result = search_employee(ctx, **arguments)
+                    elif tool_name == "search_holidays":
+                        from src.odoo_mcp.server import search_holidays
+                        result = search_holidays(ctx, **arguments)
+                    elif tool_name == "execute_method":
+                        from src.odoo_mcp.server import execute_method
+                        result = execute_method(ctx, **arguments)
+                    elif tool_name == "search_sales_orders":
+                        from src.odoo_mcp.tools_sales import search_sales_orders
+                        result = search_sales_orders(ctx, **arguments)
+                    elif tool_name == "create_sales_order":
+                        from src.odoo_mcp.tools_sales import create_sales_order  
+                        result = create_sales_order(ctx, **arguments)
+                    elif tool_name == "analyze_sales_performance":
+                        from src.odoo_mcp.tools_sales import analyze_sales_performance
+                        result = analyze_sales_performance(ctx, **arguments)
+                    else:
+                        raise ValueError(f"Tool implementation not found: {tool_name}")
+                    
+                    # Format response for n8n MCP Client
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(result, indent=2, default=str)
+                                }
+                            ]
+                        }
+                    }
+                    
+                except Exception as e:
+                    logger.error(f"Tool execution error: {e}")
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {
+                            "code": -32603,
+                            "message": f"Tool execution failed: {str(e)}"
+                        }
+                    }
+                    
         elif method == "resources/read":
             uri = params.get("uri")
             
@@ -326,7 +376,7 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
 
 @app.post("/sse")
 async def handle_sse_mcp(request: Request):
-    """Handle MCP requests via Server-Sent Events"""
+    """Handle MCP requests via Server-Sent Events - n8n Compatible"""
     logger.info("New SSE MCP connection")
     
     async def event_generator():
@@ -344,8 +394,20 @@ async def handle_sse_mcp(request: Request):
                         "id": None
                     }
                     yield f"data: {json.dumps(error_response)}\n\n"
-            
-            yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+            else:
+                # Send initial handshake for n8n compatibility
+                handshake = {
+                    "type": "handshake",
+                    "serverInfo": {
+                        "name": "odoo-mcp-server",
+                        "version": "1.1.0"
+                    },
+                    "capabilities": {
+                        "tools": True,
+                        "resources": True
+                    }
+                }
+                yield f"data: {json.dumps(handshake)}\n\n"
             
         except Exception as e:
             logger.error(f"SSE connection error: {e}")
@@ -369,7 +431,7 @@ async def handle_sse_mcp(request: Request):
 
 @app.post("/mcp")
 async def handle_mcp_post(request: Request):
-    """Handle MCP requests via standard HTTP POST"""
+    """Handle MCP requests via standard HTTP POST - n8n Compatible"""
     try:
         body = await request.body()
         request_data = json.loads(body.decode())
@@ -400,8 +462,8 @@ if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
     
-    logger.info(f"Starting server on {host}:{port}")
-    logger.info(f"Environment check:")
+    logger.info(f"Starting n8n-compatible MCP server on {host}:{port}")
+    logger.info("Environment check:")
     logger.info(f"  ODOO_URL: {os.getenv('ODOO_URL', 'NOT SET')}")
     logger.info(f"  ODOO_DB: {os.getenv('ODOO_DB', 'NOT SET')}")
     logger.info(f"  ODOO_USERNAME: {os.getenv('ODOO_USERNAME', 'NOT SET')}")
