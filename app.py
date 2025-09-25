@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
-HTTP/SSE MCP Server for Odoo Integration with Dynamic Authentication
-Compatible with n8n MCP Client node - supports per-request authentication
+HTTP/SSE MCP Server for Odoo Integration with n8n Header Auth Support
+Compatible with n8n MCP Client node using Header Auth credentials
 """
 
 import asyncio
@@ -124,18 +124,126 @@ AVAILABLE_TOOLS = {
     }
 }
 
-def extract_odoo_credentials(request_data: Dict[str, Any], headers: Dict[str, str]) -> Optional[Dict[str, str]]:
+def extract_odoo_credentials_from_n8n_auth(headers: Dict[str, str]) -> Optional[Dict[str, str]]:
     """
-    Extract Odoo credentials from request data or headers
+    Extract Odoo credentials from n8n Header Auth format
     
-    Priority:
-    1. Request body credentials
-    2. HTTP headers
-    3. Environment variables (fallback)
+    n8n Header Auth sends multiple auth headers that we need to parse:
+    - Single header with JSON credentials
+    - Multiple individual headers
+    - Authorization header with encoded credentials
     """
     credentials = {}
     
-    # Try to get from request body first
+    logger.info("Extracting credentials from n8n Header Auth")
+    logger.info(f"Available headers: {list(headers.keys())}")
+    
+    # Method 1: Look for n8n Header Auth with JSON credentials
+    # n8n might send credentials as a single JSON header
+    if "x-auth-credentials" in headers:
+        try:
+            creds = json.loads(headers["x-auth-credentials"])
+            credentials.update(creds)
+            logger.info("Found credentials in x-auth-credentials")
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse x-auth-credentials JSON")
+    
+    # Method 2: Look for individual Odoo headers (our custom approach)
+    header_mapping = {
+        "url": ["x-odoo-url", "odoo-url", "odoo_url"],
+        "db": ["x-odoo-db", "odoo-db", "x-odoo-database", "odoo-database", "odoo_db"],
+        "username": ["x-odoo-username", "odoo-username", "x-odoo-user", "odoo-user", "odoo_username"],
+        "password": ["x-odoo-password", "odoo-password", "odoo_password"]
+    }
+    
+    for key, header_options in header_mapping.items():
+        if not credentials.get(key):
+            for header in header_options:
+                if header in headers:
+                    credentials[key] = headers[header]
+                    logger.info(f"Found {key} in header: {header}")
+                    break
+    
+    # Method 3: Look for authorization header with encoded credentials
+    if "authorization" in headers:
+        auth_header = headers["authorization"]
+        if auth_header.startswith("Bearer "):
+            try:
+                # Try to decode as JSON
+                token = auth_header.replace("Bearer ", "")
+                import base64
+                decoded = base64.b64decode(token).decode('utf-8')
+                creds = json.loads(decoded)
+                credentials.update(creds)
+                logger.info("Found credentials in Bearer token")
+            except Exception as e:
+                logger.warning(f"Failed to decode Bearer token: {e}")
+    
+    # Method 4: Look for n8n specific auth headers (common patterns)
+    n8n_patterns = {
+        "url": ["auth-url", "endpoint-url", "server-url"],
+        "db": ["auth-database", "auth-db", "database"],
+        "username": ["auth-username", "auth-user", "username"],
+        "password": ["auth-password", "password"]
+    }
+    
+    for key, header_options in n8n_patterns.items():
+        if not credentials.get(key):
+            for header in header_options:
+                if header in headers:
+                    credentials[key] = headers[header]
+                    logger.info(f"Found {key} in n8n pattern header: {header}")
+                    break
+    
+    # Fallback to environment variables
+    env_mapping = {
+        "url": "ODOO_URL",
+        "db": "ODOO_DB", 
+        "username": "ODOO_USERNAME",
+        "password": "ODOO_PASSWORD"
+    }
+    
+    missing_before_env = [field for field in ["url", "db", "username", "password"] if not credentials.get(field)]
+    
+    for key, env_var in env_mapping.items():
+        if not credentials.get(key):
+            env_value = os.getenv(env_var)
+            if env_value:
+                credentials[key] = env_value
+                logger.info(f"Found {key} in environment variable: {env_var}")
+    
+    # Validate that we have all required credentials
+    required_fields = ["url", "db", "username", "password"]
+    missing = [field for field in required_fields if not credentials.get(field)]
+    
+    if missing:
+        logger.error(f"Missing Odoo credentials after all attempts: {missing}")
+        logger.info("Available credential keys: " + str(list(credentials.keys())))
+        return None
+    
+    logger.info("Successfully extracted all required Odoo credentials")
+    return credentials
+
+def extract_odoo_credentials(request_data: Dict[str, Any], headers: Dict[str, str]) -> Optional[Dict[str, str]]:
+    """
+    Extract Odoo credentials with n8n Header Auth support as priority
+    
+    Priority:
+    1. n8n Header Auth format
+    2. Request body credentials
+    3. Custom headers  
+    4. Environment variables (fallback)
+    """
+    
+    # First try n8n Header Auth format
+    credentials = extract_odoo_credentials_from_n8n_auth(headers)
+    if credentials:
+        return credentials
+    
+    # Fallback to original method
+    credentials = {}
+    
+    # Try to get from request body
     if "odoo_credentials" in request_data:
         creds = request_data["odoo_credentials"]
         credentials.update({
@@ -145,7 +253,7 @@ def extract_odoo_credentials(request_data: Dict[str, Any], headers: Dict[str, st
             "password": creds.get("password")
         })
     
-    # Try to get from headers
+    # Try to get from headers (original approach)
     header_mapping = {
         "url": ["x-odoo-url", "odoo-url"],
         "db": ["x-odoo-db", "odoo-db", "x-odoo-database", "odoo-database"],
@@ -184,6 +292,7 @@ def extract_odoo_credentials(request_data: Dict[str, Any], headers: Dict[str, st
 def create_odoo_client(credentials: Dict[str, str]) -> OdooClient:
     """Create an Odoo client with the provided credentials"""
     try:
+        logger.info(f"Creating Odoo client for: {credentials['url']}")
         return OdooClient(
             url=credentials["url"],
             db=credentials["db"],
@@ -199,15 +308,15 @@ def create_odoo_client(credentials: Dict[str, str]) -> OdooClient:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI lifespan handler"""
-    logger.info("Starting Odoo MCP Remote Server...")
+    logger.info("Starting Odoo MCP Remote Server with n8n Header Auth support...")
     yield
     logger.info("Stopping Odoo MCP Remote Server...")
 
 # Create FastAPI app
 app = FastAPI(
     title="Odoo MCP Remote Server",
-    description="HTTP/SSE MCP Server for Odoo Integration with Dynamic Authentication - n8n Compatible",
-    version="2.0.0",
+    description="HTTP/SSE MCP Server for Odoo Integration with n8n Header Auth Support",
+    version="2.1.0",
     lifespan=lifespan
 )
 
@@ -226,8 +335,9 @@ async def health_check():
     return {
         "status": "healthy", 
         "service": "odoo-mcp-remote-server",
-        "version": "2.0.0",
-        "authentication": "dynamic"
+        "version": "2.1.0",
+        "authentication": "dynamic",
+        "n8n_compatible": True
     }
 
 @app.get("/")
@@ -235,28 +345,33 @@ async def root():
     """Root endpoint with server info"""
     return {
         "service": "Odoo MCP Remote Server",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "transport": "HTTP/SSE",
         "authentication": "dynamic",
-        "compatibility": "n8n MCP Client",
+        "n8n_compatible": True,
+        "compatibility": "n8n MCP Client with Header Auth",
         "endpoints": {
             "health": "/health",
             "mcp": "/mcp",
             "sse": "/sse", 
             "docs": "/docs"
         },
-        "authentication_methods": [
-            "request_body.odoo_credentials",
-            "http_headers.x-odoo-*",
+        "supported_auth_methods": [
+            "n8n Header Auth (recommended)",
+            "request_body.odoo_credentials", 
+            "custom_headers.x-odoo-*",
             "environment_variables (fallback)"
         ],
-        "supported_headers": [
-            "x-odoo-url", "x-odoo-db", "x-odoo-username", "x-odoo-password"
-        ]
+        "n8n_setup": {
+            "endpoint": "https://your-server.com/mcp",
+            "transport": "HTTP Streamable",
+            "authentication": "Header Auth",
+            "required_headers": ["odoo_url", "odoo_db", "odoo_username", "odoo_password"]
+        }
     }
 
 async def process_mcp_request(request_data: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
-    """Process MCP request with dynamic authentication"""
+    """Process MCP request with n8n Header Auth support"""
     try:
         method = request_data.get("method", "")
         params = request_data.get("params", {})
@@ -277,7 +392,7 @@ async def process_mcp_request(request_data: Dict[str, Any], headers: Dict[str, s
                     },
                     "serverInfo": {
                         "name": "odoo-mcp-remote-server",
-                        "version": "2.0.0"
+                        "version": "2.1.0"
                     }
                 }
             }
@@ -316,7 +431,7 @@ async def process_mcp_request(request_data: Dict[str, Any], headers: Dict[str, s
             }
             
         elif method == "tools/call":
-            # Extract Odoo credentials
+            # Extract Odoo credentials using n8n Header Auth support
             credentials = extract_odoo_credentials(request_data, headers)
             if not credentials:
                 response = {
@@ -324,12 +439,13 @@ async def process_mcp_request(request_data: Dict[str, Any], headers: Dict[str, s
                     "id": request_id,
                     "error": {
                         "code": -32602,
-                        "message": "Missing Odoo credentials. Please provide credentials in request body or headers.",
+                        "message": "Missing Odoo credentials. Please configure n8n Header Auth with required fields.",
                         "data": {
-                            "required_fields": ["url", "db", "username", "password"],
-                            "supported_methods": [
+                            "required_headers": ["odoo_url", "odoo_db", "odoo_username", "odoo_password"],
+                            "n8n_setup": "Use Header Auth in n8n MCP node",
+                            "alternative_methods": [
                                 "request_body.odoo_credentials",
-                                "headers: x-odoo-url, x-odoo-db, x-odoo-username, x-odoo-password"
+                                "custom_headers: x-odoo-url, x-odoo-db, x-odoo-username, x-odoo-password"
                             ]
                         }
                     }
@@ -488,10 +604,10 @@ async def process_mcp_request(request_data: Dict[str, Any], headers: Dict[str, s
 
 @app.post("/sse")
 async def handle_sse_mcp(request: Request):
-    """Handle MCP requests via Server-Sent Events - n8n Compatible with Dynamic Auth"""
-    logger.info("New SSE MCP connection")
+    """Handle MCP requests via Server-Sent Events - n8n Compatible with Header Auth"""
+    logger.info("New SSE MCP connection with Header Auth support")
     
-    # Extract headers
+    # Extract headers (case insensitive)
     headers = {key.lower(): value for key, value in request.headers.items()}
     
     async def event_generator():
@@ -515,12 +631,12 @@ async def handle_sse_mcp(request: Request):
                     "type": "handshake",
                     "serverInfo": {
                         "name": "odoo-mcp-remote-server",
-                        "version": "2.0.0"
+                        "version": "2.1.0"
                     },
                     "capabilities": {
                         "tools": True,
                         "resources": True,
-                        "authentication": "dynamic"
+                        "authentication": "header_auth"
                     }
                 }
                 yield f"data: {json.dumps(handshake)}\n\n"
@@ -547,9 +663,9 @@ async def handle_sse_mcp(request: Request):
 
 @app.post("/mcp")
 async def handle_mcp_post(request: Request):
-    """Handle MCP requests via standard HTTP POST - n8n Compatible with Dynamic Auth"""
+    """Handle MCP requests via standard HTTP POST - n8n Compatible with Header Auth"""
     try:
-        # Extract headers
+        # Extract headers (case insensitive)
         headers = {key.lower(): value for key, value in request.headers.items()}
         
         body = await request.body()
@@ -582,11 +698,12 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     
     logger.info(f"Starting n8n-compatible MCP Remote Server on {host}:{port}")
-    logger.info("Authentication: DYNAMIC (per-request)")
+    logger.info("Authentication: DYNAMIC with n8n Header Auth support")
     logger.info("Supported credential sources:")
-    logger.info("  1. Request body: odoo_credentials object")
-    logger.info("  2. HTTP headers: x-odoo-url, x-odoo-db, x-odoo-username, x-odoo-password")
-    logger.info("  3. Environment variables (fallback)")
+    logger.info("  1. n8n Header Auth (priority)")
+    logger.info("  2. Request body: odoo_credentials object")
+    logger.info("  3. Custom headers: x-odoo-*")
+    logger.info("  4. Environment variables (fallback)")
     
     uvicorn.run(
         "app:app",
