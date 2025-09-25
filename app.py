@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
-HTTP/SSE MCP Server for Odoo Integration
-Fully compatible with n8n MCP Client node
+HTTP/SSE MCP Server for Odoo Integration with Dynamic Authentication
+Compatible with n8n MCP Client node - supports per-request authentication
 """
 
 import asyncio
@@ -9,14 +9,15 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Dict, Any, List
+from typing import AsyncIterator, Dict, Any, List, Optional
 
 import uvicorn
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 
 from src.odoo_mcp.server import mcp as odoo_mcp_server
+from src.odoo_mcp.odoo_client import OdooClient
 
 # Configure logging
 logging.basicConfig(
@@ -123,18 +124,90 @@ AVAILABLE_TOOLS = {
     }
 }
 
+def extract_odoo_credentials(request_data: Dict[str, Any], headers: Dict[str, str]) -> Optional[Dict[str, str]]:
+    """
+    Extract Odoo credentials from request data or headers
+    
+    Priority:
+    1. Request body credentials
+    2. HTTP headers
+    3. Environment variables (fallback)
+    """
+    credentials = {}
+    
+    # Try to get from request body first
+    if "odoo_credentials" in request_data:
+        creds = request_data["odoo_credentials"]
+        credentials.update({
+            "url": creds.get("url"),
+            "db": creds.get("db") or creds.get("database"),
+            "username": creds.get("username") or creds.get("user"),
+            "password": creds.get("password")
+        })
+    
+    # Try to get from headers
+    header_mapping = {
+        "url": ["x-odoo-url", "odoo-url"],
+        "db": ["x-odoo-db", "odoo-db", "x-odoo-database", "odoo-database"],
+        "username": ["x-odoo-username", "odoo-username", "x-odoo-user", "odoo-user"],
+        "password": ["x-odoo-password", "odoo-password"]
+    }
+    
+    for key, header_options in header_mapping.items():
+        if not credentials.get(key):
+            for header in header_options:
+                if header in headers:
+                    credentials[key] = headers[header]
+                    break
+    
+    # Fallback to environment variables
+    env_mapping = {
+        "url": "ODOO_URL",
+        "db": "ODOO_DB", 
+        "username": "ODOO_USERNAME",
+        "password": "ODOO_PASSWORD"
+    }
+    
+    for key, env_var in env_mapping.items():
+        if not credentials.get(key):
+            credentials[key] = os.getenv(env_var)
+    
+    # Validate that we have all required credentials
+    required_fields = ["url", "db", "username", "password"]
+    if all(credentials.get(field) for field in required_fields):
+        return credentials
+    
+    missing = [field for field in required_fields if not credentials.get(field)]
+    logger.warning(f"Missing Odoo credentials: {missing}")
+    return None
+
+def create_odoo_client(credentials: Dict[str, str]) -> OdooClient:
+    """Create an Odoo client with the provided credentials"""
+    try:
+        return OdooClient(
+            url=credentials["url"],
+            db=credentials["db"],
+            username=credentials["username"],
+            password=credentials["password"],
+            timeout=int(os.getenv("ODOO_TIMEOUT", "30")),
+            verify_ssl=os.getenv("ODOO_VERIFY_SSL", "1").lower() in ["1", "true", "yes"]
+        )
+    except Exception as e:
+        logger.error(f"Failed to create Odoo client: {e}")
+        raise
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI lifespan handler"""
-    logger.info("Starting Odoo MCP HTTP Server...")
+    logger.info("Starting Odoo MCP Remote Server...")
     yield
-    logger.info("Stopping Odoo MCP HTTP Server...")
+    logger.info("Stopping Odoo MCP Remote Server...")
 
 # Create FastAPI app
 app = FastAPI(
-    title="Odoo MCP Server",
-    description="HTTP/SSE MCP Server for Odoo Integration - n8n Compatible",
-    version="1.1.0",
+    title="Odoo MCP Remote Server",
+    description="HTTP/SSE MCP Server for Odoo Integration with Dynamic Authentication - n8n Compatible",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -152,17 +225,19 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy", 
-        "service": "odoo-mcp-server",
-        "version": "1.1.0"
+        "service": "odoo-mcp-remote-server",
+        "version": "2.0.0",
+        "authentication": "dynamic"
     }
 
 @app.get("/")
 async def root():
     """Root endpoint with server info"""
     return {
-        "service": "Odoo MCP Server",
-        "version": "1.1.0",
+        "service": "Odoo MCP Remote Server",
+        "version": "2.0.0",
         "transport": "HTTP/SSE",
+        "authentication": "dynamic",
         "compatibility": "n8n MCP Client",
         "endpoints": {
             "health": "/health",
@@ -170,15 +245,18 @@ async def root():
             "sse": "/sse", 
             "docs": "/docs"
         },
-        "environment": {
-            "odoo_url": os.getenv("ODOO_URL", "not_configured"),
-            "odoo_db": os.getenv("ODOO_DB", "not_configured"),
-            "odoo_username": os.getenv("ODOO_USERNAME", "not_configured")
-        }
+        "authentication_methods": [
+            "request_body.odoo_credentials",
+            "http_headers.x-odoo-*",
+            "environment_variables (fallback)"
+        ],
+        "supported_headers": [
+            "x-odoo-url", "x-odoo-db", "x-odoo-username", "x-odoo-password"
+        ]
     }
 
-async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Process MCP request with n8n compatibility"""
+async def process_mcp_request(request_data: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
+    """Process MCP request with dynamic authentication"""
     try:
         method = request_data.get("method", "")
         params = request_data.get("params", {})
@@ -198,8 +276,8 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
                         "prompts": {}
                     },
                     "serverInfo": {
-                        "name": "odoo-mcp-server",
-                        "version": "1.1.0"
+                        "name": "odoo-mcp-remote-server",
+                        "version": "2.0.0"
                     }
                 }
             }
@@ -238,6 +316,26 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
             }
             
         elif method == "tools/call":
+            # Extract Odoo credentials
+            credentials = extract_odoo_credentials(request_data, headers)
+            if not credentials:
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": -32602,
+                        "message": "Missing Odoo credentials. Please provide credentials in request body or headers.",
+                        "data": {
+                            "required_fields": ["url", "db", "username", "password"],
+                            "supported_methods": [
+                                "request_body.odoo_credentials",
+                                "headers: x-odoo-url, x-odoo-db, x-odoo-username, x-odoo-password"
+                            ]
+                        }
+                    }
+                }
+                return response
+            
             tool_name = params.get("name")
             arguments = params.get("arguments", {})
             
@@ -252,21 +350,23 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
                 }
             else:
                 try:
-                    # Create mock context
+                    # Create Odoo client with dynamic credentials
+                    odoo_client = create_odoo_client(credentials)
+                    
+                    # Create mock context with dynamic client
                     class MockContext:
                         class MockRequestContext:
                             class MockLifespanContext:
-                                def __init__(self):
-                                    from src.odoo_mcp.odoo_client import get_odoo_client
-                                    self.odoo = get_odoo_client()
+                                def __init__(self, client):
+                                    self.odoo = client
                             
-                            def __init__(self):
-                                self.lifespan_context = self.MockLifespanContext()
+                            def __init__(self, client):
+                                self.lifespan_context = self.MockLifespanContext(client)
                         
-                        def __init__(self):
-                            self.request_context = self.MockRequestContext()
+                        def __init__(self, client):
+                            self.request_context = self.MockRequestContext(client)
                     
-                    ctx = MockContext()
+                    ctx = MockContext(odoo_client)
                     
                     # Call the appropriate function
                     if tool_name == "search_employee":
@@ -316,12 +416,24 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
                     }
                     
         elif method == "resources/read":
+            # Extract Odoo credentials
+            credentials = extract_odoo_credentials(request_data, headers)
+            if not credentials:
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": -32602,
+                        "message": "Missing Odoo credentials for resource access"
+                    }
+                }
+                return response
+            
             uri = params.get("uri")
             
             try:
                 if uri == "odoo://models":
-                    from src.odoo_mcp.odoo_client import get_odoo_client
-                    odoo_client = get_odoo_client()
+                    odoo_client = create_odoo_client(credentials)
                     models = odoo_client.get_models()
                     result = json.dumps(models, indent=2)
                 else:
@@ -376,8 +488,11 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
 
 @app.post("/sse")
 async def handle_sse_mcp(request: Request):
-    """Handle MCP requests via Server-Sent Events - n8n Compatible"""
+    """Handle MCP requests via Server-Sent Events - n8n Compatible with Dynamic Auth"""
     logger.info("New SSE MCP connection")
+    
+    # Extract headers
+    headers = {key.lower(): value for key, value in request.headers.items()}
     
     async def event_generator():
         try:
@@ -385,7 +500,7 @@ async def handle_sse_mcp(request: Request):
             if body:
                 try:
                     request_data = json.loads(body.decode())
-                    response = await process_mcp_request(request_data)
+                    response = await process_mcp_request(request_data, headers)
                     yield f"data: {json.dumps(response)}\n\n"
                 except json.JSONDecodeError as e:
                     error_response = {
@@ -399,12 +514,13 @@ async def handle_sse_mcp(request: Request):
                 handshake = {
                     "type": "handshake",
                     "serverInfo": {
-                        "name": "odoo-mcp-server",
-                        "version": "1.1.0"
+                        "name": "odoo-mcp-remote-server",
+                        "version": "2.0.0"
                     },
                     "capabilities": {
                         "tools": True,
-                        "resources": True
+                        "resources": True,
+                        "authentication": "dynamic"
                     }
                 }
                 yield f"data: {json.dumps(handshake)}\n\n"
@@ -431,11 +547,14 @@ async def handle_sse_mcp(request: Request):
 
 @app.post("/mcp")
 async def handle_mcp_post(request: Request):
-    """Handle MCP requests via standard HTTP POST - n8n Compatible"""
+    """Handle MCP requests via standard HTTP POST - n8n Compatible with Dynamic Auth"""
     try:
+        # Extract headers
+        headers = {key.lower(): value for key, value in request.headers.items()}
+        
         body = await request.body()
         request_data = json.loads(body.decode())
-        response = await process_mcp_request(request_data)
+        response = await process_mcp_request(request_data, headers)
         return JSONResponse(content=response)
         
     except json.JSONDecodeError as e:
@@ -462,11 +581,12 @@ if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
     
-    logger.info(f"Starting n8n-compatible MCP server on {host}:{port}")
-    logger.info("Environment check:")
-    logger.info(f"  ODOO_URL: {os.getenv('ODOO_URL', 'NOT SET')}")
-    logger.info(f"  ODOO_DB: {os.getenv('ODOO_DB', 'NOT SET')}")
-    logger.info(f"  ODOO_USERNAME: {os.getenv('ODOO_USERNAME', 'NOT SET')}")
+    logger.info(f"Starting n8n-compatible MCP Remote Server on {host}:{port}")
+    logger.info("Authentication: DYNAMIC (per-request)")
+    logger.info("Supported credential sources:")
+    logger.info("  1. Request body: odoo_credentials object")
+    logger.info("  2. HTTP headers: x-odoo-url, x-odoo-db, x-odoo-username, x-odoo-password")
+    logger.info("  3. Environment variables (fallback)")
     
     uvicorn.run(
         "app:app",
