@@ -42,12 +42,12 @@ The simplest way to authenticate with n8n using a single header containing JSON 
 | Field | Value |
 |-------|--------|
 | **Name** | `x-auth-credentials` |
-| **Value** | `{"url":"https://your-odoo.com","db":"your_database","username":"your_username","password":"your_password"}` |
+| **Value** | `{"url":"https://your-company.odoo.com","db":"your_database","username":"your_username","password":"your_password"}` |
 
-#### Example for a real Odoo instance:
+#### Example configuration:
 ```
 Name: x-auth-credentials
-Value: {"url":"https://losfrescales.odoo.com","db":"losfrescales","username":"losfrescales@gmail.com","password":"Tgfj-4t1e"}
+Value: {"url":"https://mycompany.odoo.com","db":"production","username":"api_user","password":"secure_password"}
 ```
 
 ### Method 2: Header Auth - Bearer Token
@@ -65,12 +65,12 @@ To create the Bearer token for your credentials:
 
 1. **Take your credentials JSON**:
 ```json
-{"url":"https://your-odoo.com","db":"your_database","username":"your_username","password":"your_password"}
+{"url":"https://your-company.odoo.com","db":"your_database","username":"your_username","password":"your_password"}
 ```
 
 2. **Encode in base64** and add Bearer prefix:
 ```
-Bearer eyJ1cmwiOiJodHRwczovL3lvdXItb2Rvby5jb20iLCJkYiI6InlvdXJfZGF0YWJhc2UiLCJ1c2VybmFtZSI6InlvdXJfdXNlcm5hbWUiLCJwYXNzd29yZCI6InlvdXJfcGFzc3dvcmQifQ==
+Bearer eyJ1cmwiOiJodHRwczovL3lvdXItY29tcGFueS5vZG9vLmNvbSIsImRiIjoieW91cl9kYXRhYmFzZSIsInVzZXJuYW1lIjoieW91cl91c2VybmFtZSIsInBhc3N3b3JkIjoieW91cl9wYXNzd29yZCJ9
 ```
 
 ### Method 3: Custom Auth (Alternative)
@@ -81,7 +81,7 @@ For multiple headers, use Custom Auth instead.
 ```json
 {
   "headers": {
-    "odoo_url": "https://your-odoo.com",
+    "odoo_url": "https://your-company.odoo.com",
     "odoo_db": "your_database",
     "odoo_username": "your_username",
     "odoo_password": "your_password"
@@ -140,16 +140,16 @@ docker run -p 8000:8000 odoo-mcp-remote
 
 4. **Test the connection** by calling `tools/list`
 
-### Working Example:
+### Working Example with Demo Server:
 
-Here's a complete working configuration:
+Here's a complete working configuration using Odoo's demo instance:
 
 **MCP Node Settings:**
-- Endpoint: `https://n8n-odoo-remote.e2zone.easypanel.host/mcp`
+- Endpoint: `https://your-mcp-server.com/mcp`
 - Transport: `HTTP Streamable`
-- Authentication: Header Auth account named "Odoo Credentials"
+- Authentication: Header Auth account named "Odoo Demo"
 
-**Header Auth Account "Odoo Credentials":**
+**Header Auth Account "Odoo Demo":**
 - Name: `x-auth-credentials`
 - Value: `{"url":"https://demo.odoo.com","db":"demo","username":"admin","password":"admin"}`
 
