@@ -28,56 +28,65 @@ A powerful Model Context Protocol (MCP) server for Odoo integration with **dynam
 └─────────────┘                    └──────────────────┘               └─────────────┘
 ```
 
-## 📝 Authentication Methods
+## 📝 n8n Authentication Methods
 
-### Method 1: HTTP Headers (Recommended for n8n)
+### Method 1: Header Auth - Single Header (Recommended)
 
-```http
-POST /mcp
-Content-Type: application/json
-x-odoo-url: https://tenant-a.odoo.com
-x-odoo-db: production
-x-odoo-username: api_user
-x-odoo-password: secure_password
+The simplest way to authenticate with n8n using a single header containing JSON credentials.
 
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "search_sales_orders",
-    "arguments": {"filters": {"limit": 10}}
-  },
-  "id": 1
-}
+#### Configuration in n8n:
+1. **Add MCP Client node** to your workflow
+2. **Set Authentication** to "Header Auth account"
+3. **Configure the Header Auth account**:
+
+| Field | Value |
+|-------|--------|
+| **Name** | `x-auth-credentials` |
+| **Value** | `{"url":"https://your-odoo.com","db":"your_database","username":"your_username","password":"your_password"}` |
+
+#### Example for a real Odoo instance:
+```
+Name: x-auth-credentials
+Value: {"url":"https://losfrescales.odoo.com","db":"losfrescales","username":"losfrescales@gmail.com","password":"Tgfj-4t1e"}
 ```
 
-### Method 2: Request Body
+### Method 2: Header Auth - Bearer Token
 
+Use a Bearer token with base64-encoded credentials.
+
+#### Configuration in n8n:
+| Field | Value |
+|-------|--------|
+| **Name** | `Authorization` |
+| **Value** | `Bearer <base64_encoded_json>` |
+
+#### Generate Bearer Token:
+To create the Bearer token for your credentials:
+
+1. **Take your credentials JSON**:
+```json
+{"url":"https://your-odoo.com","db":"your_database","username":"your_username","password":"your_password"}
+```
+
+2. **Encode in base64** and add Bearer prefix:
+```
+Bearer eyJ1cmwiOiJodHRwczovL3lvdXItb2Rvby5jb20iLCJkYiI6InlvdXJfZGF0YWJhc2UiLCJ1c2VybmFtZSI6InlvdXJfdXNlcm5hbWUiLCJwYXNzd29yZCI6InlvdXJfcGFzc3dvcmQifQ==
+```
+
+### Method 3: Custom Auth (Alternative)
+
+For multiple headers, use Custom Auth instead.
+
+#### Configuration in n8n:
 ```json
 {
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "search_sales_orders",
-    "arguments": {"filters": {"limit": 10}}
-  },
-  "odoo_credentials": {
-    "url": "https://tenant-a.odoo.com",
-    "db": "production", 
-    "username": "api_user",
-    "password": "secure_password"
-  },
-  "id": 1
+  "headers": {
+    "odoo_url": "https://your-odoo.com",
+    "odoo_db": "your_database",
+    "odoo_username": "your_username",
+    "odoo_password": "your_password"
+  }
 }
-```
-
-### Method 3: Environment Variables (Fallback)
-
-```env
-ODOO_URL=https://default.odoo.com
-ODOO_DB=default_db
-ODOO_USERNAME=default_user
-ODOO_PASSWORD=default_pass
 ```
 
 ## 🚀 Deployment
@@ -91,7 +100,7 @@ cd odoo-mcp-improved
 git checkout odoo-remote-server
 
 # Build and run
-docker build -f Dockerfile.http -t odoo-mcp-remote .
+docker build -f Dockerfile.remote -t odoo-mcp-remote .
 docker run -p 8000:8000 odoo-mcp-remote
 ```
 
@@ -101,7 +110,7 @@ docker run -p 8000:8000 odoo-mcp-remote
 2. **Configure source:**
    - Repository: `frescales/odoo-mcp-improved`
    - Branch: `odoo-remote-server`
-   - Dockerfile: `Dockerfile.http`
+   - Dockerfile: `Dockerfile.remote`
 3. **Environment variables (optional fallback):**
    ```env
    PORT=8000
@@ -112,36 +121,37 @@ docker run -p 8000:8000 odoo-mcp-remote
    ODOO_PASSWORD=default_pass
    ```
 
-## 🔧 n8n Configuration
+## 🔧 n8n Setup Guide
 
-### Step 1: Add MCP Node
-Add an "MCP" node to your n8n workflow.
+### Complete n8n Configuration:
 
-### Step 2: Configure Connection
-- **Endpoint**: `https://your-server.com/mcp`
-- **Transport**: `HTTP Streamable`
-- **Authentication**: `None` (we handle auth dynamically)
+1. **Add MCP Client node** to your n8n workflow
 
-### Step 3: Configure Headers
-In n8n's MCP node, add these headers:
+2. **Configure connection parameters**:
+   - **Endpoint**: `https://your-server.com/mcp`
+   - **Server Transport**: `HTTP Streamable`
+   - **Authentication**: `Header Auth account`
+   - **Tools to Include**: `All`
+   - **Timeout**: `60000`
 
-| Header Name | Value | Description |
-|-------------|--------|-------------|
-| `x-odoo-url` | `https://your-odoo.com` | Odoo server URL |
-| `x-odoo-db` | `your_database` | Database name |
-| `x-odoo-username` | `your_username` | Odoo username |
-| `x-odoo-password` | `your_password` | Odoo password |
+3. **Create Header Auth account**:
+   - **Name**: `x-auth-credentials`
+   - **Value**: Your Odoo credentials as JSON (see examples above)
 
-### Step 4: Use Dynamic Values
-You can make headers dynamic using n8n expressions:
-```javascript
-{
-  "x-odoo-url": "{{ $json.odoo_config.url }}",
-  "x-odoo-db": "{{ $json.odoo_config.database }}",
-  "x-odoo-username": "{{ $json.odoo_config.username }}",  
-  "x-odoo-password": "{{ $json.odoo_config.password }}"
-}
-```
+4. **Test the connection** by calling `tools/list`
+
+### Working Example:
+
+Here's a complete working configuration:
+
+**MCP Node Settings:**
+- Endpoint: `https://n8n-odoo-remote.e2zone.easypanel.host/mcp`
+- Transport: `HTTP Streamable`
+- Authentication: Header Auth account named "Odoo Credentials"
+
+**Header Auth Account "Odoo Credentials":**
+- Name: `x-auth-credentials`
+- Value: `{"url":"https://demo.odoo.com","db":"demo","username":"admin","password":"admin"}`
 
 ## 📡 API Endpoints
 
@@ -158,17 +168,26 @@ You can make headers dynamic using n8n expressions:
 curl https://your-server.com/health
 ```
 
-**Test authentication:**
+**Test with Header Auth format:**
 ```bash
 curl -X POST https://your-server.com/mcp \
   -H "Content-Type: application/json" \
-  -H "x-odoo-url: https://demo.odoo.com" \
-  -H "x-odoo-db: demo" \
-  -H "x-odoo-username: admin" \
-  -H "x-odoo-password: admin" \
+  -H "x-auth-credentials: {\"url\":\"https://demo.odoo.com\",\"db\":\"demo\",\"username\":\"admin\",\"password\":\"admin\"}" \
   -d '{
     "jsonrpc": "2.0",
     "method": "tools/list",
+    "id": 1
+  }'
+```
+
+**Test with Bearer token:**
+```bash
+curl -X POST https://your-server.com/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJ1cmwiOiJodHRwczovL2RlbW8ub2Rvby5jb20iLCJkYiI6ImRlbW8iLCJ1c2VybmFtZSI6ImFkbWluIiwicGFzc3dvcmQiOiJhZG1pbiJ9" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/list", 
     "id": 1
   }'
 ```
@@ -218,7 +237,7 @@ The server supports all original Odoo MCP tools:
   }
 }
 ```
-**Solution**: Ensure you're sending credentials via headers or request body.
+**Solution**: Ensure you're sending credentials via the correct header format.
 
 **2. Invalid Credentials**
 ```json
@@ -231,15 +250,8 @@ The server supports all original Odoo MCP tools:
 ```
 **Solution**: Verify your Odoo credentials are correct and the user has API access.
 
-**3. Connection Timeout**
-```json
-{
-  "error": {
-    "message": "Failed to connect to Odoo server: timeout"
-  }
-}
-```
-**Solution**: Check if the Odoo URL is accessible and not behind a firewall.
+**3. JSON Format Error in Header Auth**
+**Solution**: Ensure your JSON in the header value is properly formatted with escaped quotes if needed.
 
 ### Debugging
 
@@ -248,68 +260,43 @@ The server supports all original Odoo MCP tools:
 curl https://your-server.com/health
 ```
 
-**Test with demo credentials:**
-```bash
-curl -X POST https://your-server.com/mcp \
-  -H "Content-Type: application/json" \
-  -H "x-odoo-url: https://demo.odoo.com" \
-  -H "x-odoo-db: demo" \
-  -H "x-odoo-username: admin" \
-  -H "x-odoo-password: admin" \
-  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
-```
-
-## 🌟 Usage Examples
-
-### Multi-Tenant Setup
-
-```python
-# Tenant A workflow
-headers_a = {
-    "x-odoo-url": "https://tenant-a.odoo.com",
-    "x-odoo-db": "production",
-    "x-odoo-username": "api_user_a",
-    "x-odoo-password": "password_a"
-}
-
-# Tenant B workflow  
-headers_b = {
-    "x-odoo-url": "https://tenant-b.odoo.com", 
-    "x-odoo-db": "main",
-    "x-odoo-username": "api_user_b",
-    "x-odoo-password": "password_b"
+Should return:
+```json
+{
+  "status": "healthy",
+  "service": "odoo-mcp-remote-server",
+  "version": "2.1.0",
+  "authentication": "dynamic",
+  "n8n_compatible": true
 }
 ```
 
-### Dynamic Credential Loading in n8n
+## 🌟 Real-World Example
+
+### Multi-Tenant SaaS Setup
 
 ```javascript
-// In n8n, you can load credentials from previous nodes
-const odooConfig = $node["Get Tenant Config"].json;
-
-return {
-  headers: {
-    "x-odoo-url": odooConfig.odoo_url,
-    "x-odoo-db": odooConfig.database,
-    "x-odoo-username": odooConfig.api_user,
-    "x-odoo-password": odooConfig.api_password
+// In your n8n workflow, you can switch between different Odoo instances
+const tenants = {
+  "company_a": {
+    "url": "https://company-a.odoo.com",
+    "db": "production",
+    "username": "api_user",
+    "password": "secure_password_a"
+  },
+  "company_b": {
+    "url": "https://company-b.odoo.com", 
+    "db": "main",
+    "username": "integration_user",
+    "password": "secure_password_b"
   }
 };
-```
 
-## 📊 Monitoring
+// Use different credentials based on context
+const selectedTenant = tenants[$json.tenant_id];
+const authHeader = JSON.stringify(selectedTenant);
 
-The server includes comprehensive logging:
-
-```bash
-# Authentication attempts (without passwords)
-2024-09-25 10:30:15 - INFO - Processing MCP request: tools/call
-2024-09-25 10:30:16 - INFO - Connecting to Odoo at: https://tenant-a.odoo.com
-2024-09-25 10:30:17 - INFO - Authentication successful for: api_user_a
-
-# Errors
-2024-09-25 10:35:20 - WARNING - Missing Odoo credentials: ['password']
-2024-09-25 10:40:30 - ERROR - Failed to create Odoo client: Authentication failed
+// This goes in your Header Auth configuration
 ```
 
 ## 🔄 Migration from Static Version
@@ -317,7 +304,7 @@ The server includes comprehensive logging:
 If you're migrating from the static authentication version:
 
 1. **Update your deployment** to use the `odoo-remote-server` branch
-2. **Remove environment variables** from your server configuration
+2. **Remove environment variables** from your server configuration  
 3. **Update n8n workflows** to include authentication headers
 4. **Test thoroughly** with your existing Odoo instances
 
@@ -348,4 +335,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - n8n workflow automation
 - Enterprise deployments
 
-**Need help?** Create an issue or check the [main documentation](README.md).
+**Need help?** Check the [troubleshooting section](#troubleshooting) or create an issue in the repository.
