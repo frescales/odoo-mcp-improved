@@ -1,275 +1,338 @@
+# Odoo MCP Remote Server - Dynamic Authentication
 
-# Odoo MCP Improved
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-![demo.gif](demo.gif)
+A powerful Model Context Protocol (MCP) server for Odoo integration with **dynamic per-request authentication**. Perfect for multi-tenant deployments and SaaS environments where each client needs to connect to their own Odoo instance.
 
-<div align="center">
+## 🚀 Key Features
 
-![Odoo MCP Improved Logo](https://img.shields.io/badge/Odoo%20MCP-Improved-brightgreen?style=for-the-badge&logo=odoo)
+- **🔐 Dynamic Authentication**: Each request can use different Odoo credentials
+- **🌐 Multi-Tenant Ready**: One server, multiple Odoo instances
+- **📡 n8n Compatible**: Designed to work seamlessly with n8n workflows
+- **🛡️ Secure**: No credentials stored on the server
+- **⚡ FastAPI Backend**: High-performance async API
+- **🔄 Flexible Authentication**: Multiple ways to send credentials
 
-[![PyPI version](https://img.shields.io/badge/pypi-v1.0.0-blue.svg)](https://pypi.org/project/odoo-mcp-improved/)
-[![Python Versions](https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11-blue)](https://pypi.org/project/odoo-mcp-improved/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+## 🏗️ Architecture
 
-**Enhanced Model Context Protocol (MCP) server for Odoo ERP with advanced tools for sales, purchases, inventory and accounting**
-
-</div>
-
----
-
-## 📋 Table of Contents
-
-- [Overview](#-overview)
-- [Features](#-features)
-- [Installation](#-installation)
-- [Configuration](#-configuration)
-- [Usage](#-usage)
-- [Tools Reference](#-tools-reference)
-- [Resources Reference](#-resources-reference)
-- [Prompts](#-prompts)
-- [Claude Desktop Integration](#-claude-desktop-integration)
-- [License](#-license)
-
----
-
-## 🔍 Overview
-
-Odoo MCP Improved is a comprehensive implementation of the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for Odoo ERP systems. It provides a bridge between large language models like Claude and your Odoo instance, enabling AI assistants to interact directly with your business data and processes.
-
-This extended version enhances the original MCP-Odoo implementation with advanced tools and resources for sales, purchases, inventory management, and accounting, making it a powerful solution for AI-assisted business operations.
-
----
-
-## ✨ Features
-
-### Core Capabilities
-- **Seamless Odoo Integration**: Connect directly to your Odoo instance via XML-RPC
-- **Comprehensive Data Access**: Query and manipulate data across all Odoo modules
-- **Modular Architecture**: Easily extensible with new tools and resources
-- **Robust Error Handling**: Clear error messages and validation for reliable operation
-
-### Business Domain Support
-- **Sales Management**: Order tracking, customer insights, and performance analysis
-- **Purchase Management**: Supplier management, order processing, and performance metrics
-- **Inventory Management**: Stock monitoring, inventory adjustments, and turnover analysis
-- **Accounting**: Financial reporting, journal entries, and ratio analysis
-
-### Advanced Functionality
-- **Analytical Tools**: Business intelligence capabilities across all domains
-- **Specialized Prompts**: Pre-configured prompts for common business scenarios
-- **Resource URIs**: Standardized access to Odoo data through URI patterns
-- **Performance Optimization**: Caching and efficient data retrieval
-
----
-
-## 📦 Installation
-
-### Using pip
-
-```bash
-pip install odoo-mcp-improved
+```
+┌─────────────┐    HTTP + Auth    ┌──────────────────┐    XML-RPC    ┌─────────────┐
+│ n8n Client  │ ─────────────────► │ MCP Remote      │ ─────────────► │ Odoo A      │
+│ (Tenant A)  │   Headers/Body     │ Server          │               │ Instance    │
+└─────────────┘                    │                 │               └─────────────┘
+                                   │                 │
+┌─────────────┐    HTTP + Auth    │                 │    XML-RPC    ┌─────────────┐
+│ n8n Client  │ ─────────────────► │                 │ ─────────────► │ Odoo B      │
+│ (Tenant B)  │   Headers/Body     │                 │               │ Instance    │
+└─────────────┘                    └──────────────────┘               └─────────────┘
 ```
 
-### From Source
+## 📝 n8n Authentication Methods
 
-```bash
-git clone https://github.com/hachecito/odoo-mcp-improved.git
-cd odoo-mcp-improved
-pip install -e .
+### Method 1: Header Auth - Single Header (Recommended)
+
+The simplest way to authenticate with n8n using a single header containing JSON credentials.
+
+#### Configuration in n8n:
+1. **Add MCP Client node** to your workflow
+2. **Set Authentication** to "Header Auth account"
+3. **Configure the Header Auth account**:
+
+| Field | Value |
+|-------|--------|
+| **Name** | `x-auth-credentials` |
+| **Value** | `{"url":"https://your-company.odoo.com","db":"your_database","username":"your_username","password":"your_password"}` |
+
+#### Example configuration:
+```
+Name: x-auth-credentials
+Value: {"url":"https://mycompany.odoo.com","db":"production","username":"api_user","password":"secure_password"}
 ```
 
----
+### Method 2: Header Auth - Bearer Token
 
-## ⚙️ Configuration
+Use a Bearer token with base64-encoded credentials.
 
-### Environment Variables
+#### Configuration in n8n:
+| Field | Value |
+|-------|--------|
+| **Name** | `Authorization` |
+| **Value** | `Bearer <base64_encoded_json>` |
 
-```bash
-export ODOO_URL=https://your-odoo-instance.com
-export ODOO_DB=your_database
-export ODOO_USERNAME=your_username
-export ODOO_PASSWORD=your_password
+#### Generate Bearer Token:
+To create the Bearer token for your credentials:
+
+1. **Take your credentials JSON**:
+```json
+{"url":"https://your-company.odoo.com","db":"your_database","username":"your_username","password":"your_password"}
 ```
 
-### Configuration File
+2. **Encode in base64** and add Bearer prefix:
+```
+Bearer eyJ1cmwiOiJodHRwczovL3lvdXItY29tcGFueS5vZG9vLmNvbSIsImRiIjoieW91cl9kYXRhYmFzZSIsInVzZXJuYW1lIjoieW91cl91c2VybmFtZSIsInBhc3N3b3JkIjoieW91cl9wYXNzd29yZCJ9
+```
 
-Create an `odoo_config.json` file in your working directory:
+### Method 3: Custom Auth (Alternative)
 
+For multiple headers, use Custom Auth instead.
+
+#### Configuration in n8n:
 ```json
 {
-  "url": "https://your-odoo-instance.com",
-  "db": "your_database",
-  "username": "your_username",
-  "password": "your_password"
-}
-```
-
----
-
-## 🚀 Usage
-
-### Running the Server
-
-```bash
-# Using the module
-python -m odoo_mcp
-```
-
-### Example Interactions
-
-```
-# Sales Analysis
-Using the Odoo MCP, analyze our sales performance for the last quarter and identify our top-selling products.
-
-# Inventory Check
-Check the current stock levels for product XYZ across all warehouses.
-
-# Financial Analysis
-Calculate our current liquidity and profitability ratios based on the latest financial data.
-
-# Customer Insights
-Provide insights on customer ABC's purchase history and payment patterns.
-```
-
----
-
-## 🤖 Claude Desktop Integration
-
-Add the following to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "odoo": {
-      "command": "python",
-      "args": ["-m", "odoo_mcp"],
-      "env": {
-        "ODOO_URL": "https://your-odoo-instance.com",
-        "ODOO_DB": "your_database",
-        "ODOO_USERNAME": "your_username",
-        "ODOO_PASSWORD": "your_password"
-      }
-    }
+  "headers": {
+    "odoo_url": "https://your-company.odoo.com",
+    "odoo_db": "your_database",
+    "odoo_username": "your_username",
+    "odoo_password": "your_password"
   }
 }
 ```
 
----
+## 🚀 Deployment
 
-## 🛠️ Tools Reference
+### Docker Deployment
 
-### Sales Tools
+```bash
+# Clone the repository
+git clone https://github.com/frescales/odoo-mcp-improved.git
+cd odoo-mcp-improved
+git checkout odoo-remote-clean
 
-| Tool | Description |
-|------|-------------|
-| `search_sales_orders` | Search for sales orders with advanced filtering |
-| `create_sales_order` | Create a new sales order |
-| `analyze_sales_performance` | Analyze sales performance by period, product, or customer |
-| `get_customer_insights` | Get detailed insights about a specific customer |
+# Build and run
+docker build -f Dockerfile.remote -t odoo-mcp-remote .
+docker run -p 8000:8000 odoo-mcp-remote
+```
 
-### Purchase Tools
+### EasyPanel Deployment
 
-| Tool | Description |
-|------|-------------|
-| `search_purchase_orders` | Search for purchase orders with advanced filtering |
-| `create_purchase_order` | Create a new purchase order |
-| `analyze_supplier_performance` | Analyze supplier performance metrics |
+1. **Create new service in EasyPanel**
+2. **Configure source:**
+   - Repository: `frescales/odoo-mcp-improved`
+   - Branch: `odoo-remote-clean`
+   - Dockerfile: `Dockerfile.remote`
+3. **Environment variables (optional fallback):**
+   ```env
+   PORT=8000
+   # Optional default credentials (fallback only)
+   ODOO_URL=https://default.odoo.com
+   ODOO_DB=default_db
+   ODOO_USERNAME=default_user
+   ODOO_PASSWORD=default_pass
+   ```
 
-### Inventory Tools
+## 🔧 n8n Setup Guide
 
-| Tool | Description |
-|------|-------------|
-| `check_product_availability` | Check stock availability for products |
-| `create_inventory_adjustment` | Create inventory adjustment entries |
-| `analyze_inventory_turnover` | Calculate and analyze inventory turnover metrics |
+### Complete n8n Configuration:
 
-### Accounting Tools
+1. **Add MCP Client node** to your n8n workflow
 
-| Tool | Description |
-|------|-------------|
-| `search_journal_entries` | Search for accounting journal entries |
-| `create_journal_entry` | Create a new journal entry |
-| `analyze_financial_ratios` | Calculate key financial ratios |
+2. **Configure connection parameters**:
+   - **Endpoint**: `https://your-server.com/mcp`
+   - **Server Transport**: `HTTP Streamable`
+   - **Authentication**: `Header Auth account`
+   - **Tools to Include**: `All`
+   - **Timeout**: `60000`
 
----
+3. **Create Header Auth account**:
+   - **Name**: `x-auth-credentials`
+   - **Value**: Your Odoo credentials as JSON (see examples above)
 
-## 🔗 Resources Reference
+4. **Test the connection** by calling `tools/list`
 
-### Sales Resources
+### Working Example with Demo Server:
 
-| URI | Description |
-|-----|-------------|
-| `odoo://sales/orders` | List sales orders |
-| `odoo://sales/order/{order_id}` | Get details of a specific sales order |
-| `odoo://sales/products` | List sellable products |
-| `odoo://sales/customers` | List customers |
+Here's a complete working configuration using Odoo's demo instance:
 
-### Purchase Resources
+**MCP Node Settings:**
+- Endpoint: `https://your-mcp-server.com/mcp`
+- Transport: `HTTP Streamable`
+- Authentication: Header Auth account named "Odoo Demo"
 
-| URI | Description |
-|-----|-------------|
-| `odoo://purchase/orders` | List purchase orders |
-| `odoo://purchase/order/{order_id}` | Get details of a specific purchase order |
-| `odoo://purchase/suppliers` | List suppliers |
+**Header Auth Account "Odoo Demo":**
+- Name: `x-auth-credentials`
+- Value: `{"url":"https://demo.odoo.com","db":"demo","username":"admin","password":"admin"}`
 
-### Inventory Resources
+## 📡 API Endpoints
 
-| URI | Description |
-|-----|-------------|
-| `odoo://inventory/products` | List products in inventory |
-| `odoo://inventory/stock/{location_id}` | Get stock levels at a specific location |
-| `odoo://inventory/movements` | List inventory movements |
+### Core Endpoints
+- `POST /mcp` - Main MCP endpoint (standard HTTP)
+- `POST /sse` - MCP endpoint with Server-Sent Events
+- `GET /health` - Health check
+- `GET /` - Server information and supported authentication methods
 
-### Accounting Resources
+### Example Usage
 
-| URI | Description |
-|-----|-------------|
-| `odoo://accounting/accounts` | List accounting accounts |
-| `odoo://accounting/journal_entries` | List journal entries |
-| `odoo://accounting/reports/{report_type}` | Get financial reports |
+**Check server health:**
+```bash
+curl https://your-server.com/health
+```
 
----
+**Test with Header Auth format:**
+```bash
+curl -X POST https://your-server.com/mcp \
+  -H "Content-Type: application/json" \
+  -H "x-auth-credentials: {\"url\":\"https://demo.odoo.com\",\"db\":\"demo\",\"username\":\"admin\",\"password\":\"admin\"}" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/list",
+    "id": 1
+  }'
+```
 
-## 💬 Prompts
+**Test with Bearer token:**
+```bash
+curl -X POST https://your-server.com/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJ1cmwiOiJodHRwczovL2RlbW8ub2Rvby5jb20iLCJkYiI6ImRlbW8iLCJ1c2VybmFtZSI6ImFkbWluIiwicGFzc3dvcmQiOiJhZG1pbiJ9" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/list", 
+    "id": 1
+  }'
+```
 
-Odoo MCP Improved includes specialized prompts for different business scenarios:
+## 🛠️ Available Tools
 
-### Sales Analysis Prompts
-- Sales trend analysis
-- Customer segmentation
-- Product performance evaluation
-- Sales team performance
+The server supports all original Odoo MCP tools:
 
-### Inventory Management Prompts
-- Stock optimization
-- Reordering suggestions
-- Warehouse efficiency analysis
-- Product movement patterns
+### Sales & CRM
+- `search_sales_orders` - Search and filter sales orders
+- `create_sales_order` - Create new sales orders  
+- `analyze_sales_performance` - Sales analytics
 
-### Human Resources Prompts
-- Staff planning
-- Scheduling optimization
-- Performance evaluation
-- Resource allocation
+### Purchasing
+- `search_purchase_orders` - Search purchase orders
+- `create_purchase_order` - Create purchase orders
+- `analyze_supplier_performance` - Supplier analytics
 
-### Financial Analysis Prompts
-- Ratio interpretation
-- Cash flow analysis
-- Budget variance analysis
-- Financial health assessment
+### Inventory
+- `check_product_availability` - Stock levels
+- `create_inventory_adjustment` - Stock adjustments
+- `analyze_inventory_turnover` - Inventory analytics
 
----
+### HR & General
+- `search_employee` - Find employees
+- `search_holidays` - Employee leave management
+- `execute_method` - Execute any Odoo model method
+
+## 🔒 Security Considerations
+
+- **No Credential Storage**: Server never stores credentials persistently
+- **Per-Request Authentication**: Each request is authenticated independently  
+- **HTTPS Recommended**: Always use HTTPS in production
+- **Header Security**: Credentials in headers are only visible during request
+- **Audit Trail**: All authentication attempts are logged (without passwords)
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+**1. Authentication Failed**
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "Missing Odoo credentials"
+  }
+}
+```
+**Solution**: Ensure you're sending credentials via the correct header format.
+
+**2. Invalid Credentials**
+```json
+{
+  "error": {
+    "code": -32603,
+    "message": "Tool execution failed: Authentication failed"
+  }
+}
+```
+**Solution**: Verify your Odoo credentials are correct and the user has API access.
+
+**3. JSON Format Error in Header Auth**
+**Solution**: Ensure your JSON in the header value is properly formatted with escaped quotes if needed.
+
+### Debugging
+
+**Check server status:**
+```bash
+curl https://your-server.com/health
+```
+
+Should return:
+```json
+{
+  "status": "healthy",
+  "service": "odoo-mcp-remote-server",
+  "version": "2.1.0",
+  "authentication": "dynamic",
+  "n8n_compatible": true
+}
+```
+
+## 🌟 Real-World Example
+
+### Multi-Tenant SaaS Setup
+
+```javascript
+// In your n8n workflow, you can switch between different Odoo instances
+const tenants = {
+  "company_a": {
+    "url": "https://company-a.odoo.com",
+    "db": "production",
+    "username": "api_user",
+    "password": "secure_password_a"
+  },
+  "company_b": {
+    "url": "https://company-b.odoo.com", 
+    "db": "main",
+    "username": "integration_user",
+    "password": "secure_password_b"
+  }
+};
+
+// Use different credentials based on context
+const selectedTenant = tenants[$json.tenant_id];
+const authHeader = JSON.stringify(selectedTenant);
+
+// This goes in your Header Auth configuration
+```
+
+## 🔄 Migration from Static Version
+
+If you're migrating from the static authentication version:
+
+1. **Update your deployment** to use the `odoo-remote-clean` branch
+2. **Remove environment variables** from your server configuration  
+3. **Update n8n workflows** to include authentication headers
+4. **Test thoroughly** with your existing Odoo instances
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch from `odoo-remote-clean`
+3. Make your changes
+4. Test with multiple Odoo instances
+5. Submit a pull request
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-This repo is extended from [mcp-odoo](https://github.com/tuanle96/mcp-odoo) - [Lê Anh Tuấn](https://github.com/tuanle96)
+## 🙏 Acknowledgments
+
+- Built on top of the original [odoo-mcp-improved](https://github.com/hachecito/odoo-mcp-improved)
+- Powered by [FastAPI](https://fastapi.tiangolo.com/)
+- Designed for [n8n](https://n8n.io/) workflows
 
 ---
 
-<div align="center">
+**🎯 Perfect for:**
+- Multi-tenant SaaS applications
+- Dynamic Odoo integrations  
+- Secure credential handling
+- n8n workflow automation
+- Enterprise deployments
 
-**Odoo MCP Improved** - Empowering AI assistants with comprehensive Odoo ERP capabilities
-
-</div>
+**Need help?** Check the [troubleshooting section](#troubleshooting) or create an issue in the repository.
