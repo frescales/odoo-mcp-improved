@@ -8,6 +8,7 @@ A powerful Model Context Protocol (MCP) server for Odoo integration with **dynam
 ## 🚀 Key Features
 
 - **🔐 Dynamic Authentication**: Each request can use different Odoo credentials
+- **🔑 Flexible Auth Methods**: Supports both **password** and **API key** authentication
 - **🌐 Multi-Tenant Ready**: One server, multiple Odoo instances
 - **📡 n8n Compatible**: Designed to work seamlessly with n8n workflows
 - **🛡️ Secure**: No credentials stored on the server
@@ -28,11 +29,46 @@ A powerful Model Context Protocol (MCP) server for Odoo integration with **dynam
 └─────────────┘                    └──────────────────┘               └─────────────┘
 ```
 
+## 🔐 Authentication Methods
+
+The server supports **two authentication methods**:
+
+### 1. **Password Authentication** (Traditional)
+```json
+{
+  "url": "https://your-company.odoo.com",
+  "db": "your_database",
+  "username": "your_username",
+  "password": "your_password"
+}
+```
+
+### 2. **API Key Authentication** (Recommended for Security)
+```json
+{
+  "url": "https://your-company.odoo.com",
+  "db": "your_database", 
+  "username": "your_username",
+  "api_key": "your_api_key_here"
+}
+```
+
+> **Note**: If both `password` and `api_key` are provided, **API key takes priority**.
+
+### How to Generate an Odoo API Key
+
+1. Log into your Odoo instance
+2. Go to **Settings** → **Users & Companies** → **Users**
+3. Select your user
+4. Click on **Preferences** tab
+5. In the **Account Security** section, click **New API Key**
+6. Copy and save the generated API key (you won't see it again!)
+
 ## 📝 n8n Authentication Methods
 
-### Method 1: Header Auth - Single Header (Recommended)
+### Method 1: Header Auth - Single Header with API Key (Recommended)
 
-The simplest way to authenticate with n8n using a single header containing JSON credentials.
+The most secure way to authenticate with n8n using API key.
 
 #### Configuration in n8n:
 1. **Add MCP Client node** to your workflow
@@ -42,15 +78,25 @@ The simplest way to authenticate with n8n using a single header containing JSON 
 | Field | Value |
 |-------|--------|
 | **Name** | `x-auth-credentials` |
-| **Value** | `{"url":"https://your-company.odoo.com","db":"your_database","username":"your_username","password":"your_password"}` |
+| **Value** | `{"url":"https://your-company.odoo.com","db":"your_database","username":"your_username","api_key":"your_api_key"}` |
 
 #### Example configuration:
 ```
 Name: x-auth-credentials
-Value: {"url":"https://mycompany.odoo.com","db":"production","username":"api_user","password":"secure_password"}
+Value: {"url":"https://mycompany.odoo.com","db":"production","username":"api_user","api_key":"abc123xyz789"}
 ```
 
-### Method 2: Header Auth - Bearer Token
+### Method 2: Header Auth - Single Header with Password
+
+Use password authentication if you don't have an API key.
+
+#### Configuration in n8n:
+| Field | Value |
+|-------|--------|
+| **Name** | `x-auth-credentials` |
+| **Value** | `{"url":"https://your-company.odoo.com","db":"your_database","username":"your_username","password":"your_password"}` |
+
+### Method 3: Header Auth - Bearer Token
 
 Use a Bearer token with base64-encoded credentials.
 
@@ -63,21 +109,30 @@ Use a Bearer token with base64-encoded credentials.
 #### Generate Bearer Token:
 To create the Bearer token for your credentials:
 
-1. **Take your credentials JSON**:
+1. **Take your credentials JSON** (with API key or password):
 ```json
-{"url":"https://your-company.odoo.com","db":"your_database","username":"your_username","password":"your_password"}
+{"url":"https://your-company.odoo.com","db":"your_database","username":"your_username","api_key":"your_api_key"}
 ```
 
-2. **Encode in base64** and add Bearer prefix:
-```
-Bearer eyJ1cmwiOiJodHRwczovL3lvdXItY29tcGFueS5vZG9vLmNvbSIsImRiIjoieW91cl9kYXRhYmFzZSIsInVzZXJuYW1lIjoieW91cl91c2VybmFtZSIsInBhc3N3b3JkIjoieW91cl9wYXNzd29yZCJ9
-```
+2. **Encode in base64** and add Bearer prefix.
 
-### Method 3: Custom Auth (Alternative)
+### Method 4: Custom Auth (Alternative)
 
 For multiple headers, use Custom Auth instead.
 
 #### Configuration in n8n:
+```json
+{
+  "headers": {
+    "odoo_url": "https://your-company.odoo.com",
+    "odoo_db": "your_database",
+    "odoo_username": "your_username",
+    "odoo_api_key": "your_api_key"
+  }
+}
+```
+
+Or with password:
 ```json
 {
   "headers": {
@@ -97,7 +152,7 @@ For multiple headers, use Custom Auth instead.
 # Clone the repository
 git clone https://github.com/frescales/odoo-mcp-improved.git
 cd odoo-mcp-improved
-git checkout odoo-remote-server
+git checkout odoo-remote-clean
 
 # Build and run
 docker build -f Dockerfile.remote -t odoo-mcp-remote .
@@ -109,7 +164,7 @@ docker run -p 8000:8000 odoo-mcp-remote
 1. **Create new service in EasyPanel**
 2. **Configure source:**
    - Repository: `frescales/odoo-mcp-improved`
-   - Branch: `odoo-remote-server`
+   - Branch: `odoo-remote-clean`
    - Dockerfile: `Dockerfile.remote`
 3. **Environment variables (optional fallback):**
    ```env
@@ -118,7 +173,10 @@ docker run -p 8000:8000 odoo-mcp-remote
    ODOO_URL=https://default.odoo.com
    ODOO_DB=default_db
    ODOO_USERNAME=default_user
+   # Use either password OR api_key
    ODOO_PASSWORD=default_pass
+   # OR
+   ODOO_API_KEY=default_api_key
    ```
 
 ## 🔧 n8n Setup Guide
@@ -134,24 +192,24 @@ docker run -p 8000:8000 odoo-mcp-remote
    - **Tools to Include**: `All`
    - **Timeout**: `60000`
 
-3. **Create Header Auth account**:
+3. **Create Header Auth account** with API key (recommended):
    - **Name**: `x-auth-credentials`
-   - **Value**: Your Odoo credentials as JSON (see examples above)
+   - **Value**: Your Odoo credentials as JSON with `api_key` (see examples above)
 
 4. **Test the connection** by calling `tools/list`
 
-### Working Example with Demo Server:
+### Working Example with API Key:
 
-Here's a complete working configuration using Odoo's demo instance:
+Here's a complete working configuration:
 
 **MCP Node Settings:**
 - Endpoint: `https://your-mcp-server.com/mcp`
 - Transport: `HTTP Streamable`
-- Authentication: Header Auth account named "Odoo Demo"
+- Authentication: Header Auth account named "Odoo Production"
 
-**Header Auth Account "Odoo Demo":**
+**Header Auth Account "Odoo Production":**
 - Name: `x-auth-credentials`
-- Value: `{"url":"https://demo.odoo.com","db":"demo","username":"admin","password":"admin"}`
+- Value: `{"url":"https://mycompany.odoo.com","db":"production","username":"integration_user","api_key":"abc123xyz789"}`
 
 ## 📡 API Endpoints
 
@@ -168,11 +226,11 @@ Here's a complete working configuration using Odoo's demo instance:
 curl https://your-server.com/health
 ```
 
-**Test with Header Auth format:**
+**Test with API Key (Header Auth format):**
 ```bash
 curl -X POST https://your-server.com/mcp \
   -H "Content-Type: application/json" \
-  -H "x-auth-credentials: {\"url\":\"https://demo.odoo.com\",\"db\":\"demo\",\"username\":\"admin\",\"password\":\"admin\"}" \
+  -H "x-auth-credentials: {\"url\":\"https://demo.odoo.com\",\"db\":\"demo\",\"username\":\"admin\",\"api_key\":\"your_api_key\"}" \
   -d '{
     "jsonrpc": "2.0",
     "method": "tools/list",
@@ -180,14 +238,14 @@ curl -X POST https://your-server.com/mcp \
   }'
 ```
 
-**Test with Bearer token:**
+**Test with Password:**
 ```bash
 curl -X POST https://your-server.com/mcp \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer eyJ1cmwiOiJodHRwczovL2RlbW8ub2Rvby5jb20iLCJkYiI6ImRlbW8iLCJ1c2VybmFtZSI6ImFkbWluIiwicGFzc3dvcmQiOiJhZG1pbiJ9" \
+  -H "x-auth-credentials: {\"url\":\"https://demo.odoo.com\",\"db\":\"demo\",\"username\":\"admin\",\"password\":\"admin\"}" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "tools/list", 
+    "method": "tools/list",
     "id": 1
   }'
 ```
@@ -219,10 +277,11 @@ The server supports all original Odoo MCP tools:
 ## 🔒 Security Considerations
 
 - **No Credential Storage**: Server never stores credentials persistently
-- **Per-Request Authentication**: Each request is authenticated independently  
+- **Per-Request Authentication**: Each request is authenticated independently
+- **API Key Recommended**: More secure than password (can be revoked independently)
 - **HTTPS Recommended**: Always use HTTPS in production
 - **Header Security**: Credentials in headers are only visible during request
-- **Audit Trail**: All authentication attempts are logged (without passwords)
+- **Audit Trail**: All authentication attempts are logged (without passwords/keys)
 
 ## 🚨 Troubleshooting
 
@@ -237,7 +296,7 @@ The server supports all original Odoo MCP tools:
   }
 }
 ```
-**Solution**: Ensure you're sending credentials via the correct header format.
+**Solution**: Ensure you're sending credentials via the correct header format. Verify you have either `password` OR `api_key`.
 
 **2. Invalid Credentials**
 ```json
@@ -248,7 +307,10 @@ The server supports all original Odoo MCP tools:
   }
 }
 ```
-**Solution**: Verify your Odoo credentials are correct and the user has API access.
+**Solution**: 
+- For password: Verify your Odoo credentials are correct
+- For API key: Verify the API key is valid and hasn't been revoked
+- Ensure the user has API access enabled
 
 **3. JSON Format Error in Header Auth**
 **Solution**: Ensure your JSON in the header value is properly formatted with escaped quotes if needed.
@@ -265,15 +327,16 @@ Should return:
 {
   "status": "healthy",
   "service": "odoo-mcp-remote-server",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "authentication": "dynamic",
+  "auth_methods": ["password", "api_key"],
   "n8n_compatible": true
 }
 ```
 
 ## 🌟 Real-World Example
 
-### Multi-Tenant SaaS Setup
+### Multi-Tenant SaaS Setup with API Keys
 
 ```javascript
 // In your n8n workflow, you can switch between different Odoo instances
@@ -282,13 +345,13 @@ const tenants = {
     "url": "https://company-a.odoo.com",
     "db": "production",
     "username": "api_user",
-    "password": "secure_password_a"
+    "api_key": "abc123_company_a"  // More secure than password
   },
   "company_b": {
     "url": "https://company-b.odoo.com", 
     "db": "main",
     "username": "integration_user",
-    "password": "secure_password_b"
+    "api_key": "xyz789_company_b"  // Can be revoked independently
   }
 };
 
@@ -303,15 +366,24 @@ const authHeader = JSON.stringify(selectedTenant);
 
 If you're migrating from the static authentication version:
 
-1. **Update your deployment** to use the `odoo-remote-server` branch
+1. **Update your deployment** to use the `odoo-remote-clean` branch
 2. **Remove environment variables** from your server configuration  
 3. **Update n8n workflows** to include authentication headers
-4. **Test thoroughly** with your existing Odoo instances
+4. **Consider using API keys** instead of passwords for enhanced security
+5. **Test thoroughly** with your existing Odoo instances
+
+## 🆕 What's New in v2.2.0
+
+- ✅ **API Key Authentication**: Full support for Odoo API keys
+- ✅ **Dual Auth Support**: Use password OR API key (API key prioritized)
+- ✅ **Enhanced Security**: API keys can be revoked without changing passwords
+- ✅ **Better Logging**: Authentication method logged for troubleshooting
+- ✅ **Backward Compatible**: Existing password-based setups continue to work
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch from `odoo-remote-server`
+2. Create a feature branch from `odoo-remote-clean`
 3. Make your changes
 4. Test with multiple Odoo instances
 5. Submit a pull request
@@ -331,7 +403,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **🎯 Perfect for:**
 - Multi-tenant SaaS applications
 - Dynamic Odoo integrations  
-- Secure credential handling
+- Secure credential handling with API keys
 - n8n workflow automation
 - Enterprise deployments
 
