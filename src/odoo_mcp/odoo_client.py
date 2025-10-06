@@ -20,7 +20,8 @@ class OdooClient:
         url,
         db,
         username,
-        password,
+        password=None,
+        api_key=None,
         timeout=10,
         verify_ssl=True,
     ):
@@ -31,7 +32,8 @@ class OdooClient:
             url: Odoo server URL (with or without protocol)
             db: Database name
             username: Login username
-            password: Login password
+            password: Login password (optional if api_key is provided)
+            api_key: API key for authentication (takes priority over password)
             timeout: Connection timeout in seconds
             verify_ssl: Whether to verify SSL certificates
         """
@@ -45,7 +47,20 @@ class OdooClient:
         self.url = url
         self.db = db
         self.username = username
-        self.password = password
+        
+        # Prioritize API key over password
+        # When using API key, it acts as the password in XML-RPC authentication
+        if api_key:
+            self.api_key = api_key
+            self.password = api_key  # API key is used as password in XML-RPC
+            self.auth_method = "api_key"
+        elif password:
+            self.api_key = None
+            self.password = password
+            self.auth_method = "password"
+        else:
+            raise ValueError("Either password or api_key must be provided")
+        
         self.uid = None
 
         # Set timeout and SSL verification
@@ -77,6 +92,7 @@ class OdooClient:
             f"  Timeout: {self.timeout}s, Verify SSL: {self.verify_ssl}",
             file=os.sys.stderr,
         )
+        print(f"  Authentication method: {self.auth_method}", file=os.sys.stderr)
 
         # Thiết lập endpoints
         self._common = xmlrpc.client.ServerProxy(
@@ -96,11 +112,13 @@ class OdooClient:
                 f"Making request to {self.hostname}/xmlrpc/2/common (attempt 1)",
                 file=os.sys.stderr,
             )
+            # When using API key, the password parameter in authenticate should be the API key
             self.uid = self._common.authenticate(
                 self.db, self.username, self.password, {}
             )
             if not self.uid:
-                raise ValueError("Authentication failed: Invalid username or password")
+                auth_type = "API key" if self.auth_method == "api_key" else "password"
+                raise ValueError(f"Authentication failed: Invalid username or {auth_type}")
         except (socket.error, socket.timeout, ConnectionError, TimeoutError) as e:
             print(f"Connection error: {str(e)}", file=os.sys.stderr)
             raise ConnectionError(f"Failed to connect to Odoo server: {str(e)}")
@@ -110,6 +128,7 @@ class OdooClient:
 
     def _execute(self, model, method, *args, **kwargs):
         """Execute a method on an Odoo model"""
+        # Use the password field which contains either the actual password or the API key
         return self._models.execute_kw(
             self.db, self.uid, self.password, model, method, args, kwargs
         )
@@ -371,7 +390,7 @@ def load_config():
     Load Odoo configuration from environment variables or config file
 
     Returns:
-        dict: Configuration dictionary with url, db, username, password
+        dict: Configuration dictionary with url, db, username, and password or api_key
     """
     # Define config file paths to check
     config_paths = [
@@ -381,16 +400,23 @@ def load_config():
     ]
 
     # Try environment variables first
-    if all(
-        var in os.environ
-        for var in ["ODOO_URL", "ODOO_DB", "ODOO_USERNAME", "ODOO_PASSWORD"]
-    ):
-        return {
+    # Check for API key first (takes priority)
+    if all(var in os.environ for var in ["ODOO_URL", "ODOO_DB", "ODOO_USERNAME"]):
+        config = {
             "url": os.environ["ODOO_URL"],
             "db": os.environ["ODOO_DB"],
             "username": os.environ["ODOO_USERNAME"],
-            "password": os.environ["ODOO_PASSWORD"],
         }
+        
+        # API key takes priority over password
+        if "ODOO_API_KEY" in os.environ:
+            config["api_key"] = os.environ["ODOO_API_KEY"]
+        elif "ODOO_PASSWORD" in os.environ:
+            config["password"] = os.environ["ODOO_PASSWORD"]
+        else:
+            raise ValueError("Either ODOO_API_KEY or ODOO_PASSWORD must be provided")
+        
+        return config
 
     # Try to load from file
     for path in config_paths:
@@ -424,6 +450,10 @@ def get_odoo_client():
     print(f"  URL: {config['url']}", file=os.sys.stderr)
     print(f"  Database: {config['db']}", file=os.sys.stderr)
     print(f"  Username: {config['username']}", file=os.sys.stderr)
+    
+    # Determine authentication method
+    auth_method = "API Key" if "api_key" in config else "Password"
+    print(f"  Authentication: {auth_method}", file=os.sys.stderr)
     print(f"  Timeout: {timeout}s", file=os.sys.stderr)
     print(f"  Verify SSL: {verify_ssl}", file=os.sys.stderr)
 
@@ -431,7 +461,8 @@ def get_odoo_client():
         url=config["url"],
         db=config["db"],
         username=config["username"],
-        password=config["password"],
+        password=config.get("password"),
+        api_key=config.get("api_key"),
         timeout=timeout,
         verify_ssl=verify_ssl,
     )
