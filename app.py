@@ -134,7 +134,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Odoo MCP Server",
     description="HTTP/SSE MCP Server for Odoo Integration - n8n Compatible",
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan
 )
 
@@ -153,7 +153,7 @@ async def health_check():
     return {
         "status": "healthy", 
         "service": "odoo-mcp-server",
-        "version": "1.1.0"
+        "version": "1.2.0"
     }
 
 @app.get("/")
@@ -161,13 +161,17 @@ async def root():
     """Root endpoint with server info"""
     return {
         "service": "Odoo MCP Server",
-        "version": "1.1.0",
-        "transport": "HTTP/SSE",
+        "version": "1.2.0",
+        "transport": "HTTP",
         "compatibility": "n8n MCP Client",
+        "n8n_setup": {
+            "transport": "HTTP Streamable",
+            "url": "https://your-server.com/mcp"
+        },
         "endpoints": {
             "health": "/health",
-            "mcp": "/mcp",
-            "sse": "/sse", 
+            "mcp": "/mcp (recommended for n8n)",
+            "sse": "/sse (alternative)",
             "docs": "/docs"
         },
         "environment": {
@@ -199,7 +203,7 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
                     },
                     "serverInfo": {
                         "name": "odoo-mcp-server",
-                        "version": "1.1.0"
+                        "version": "1.2.0"
                     }
                 }
             }
@@ -374,21 +378,44 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
             "id": request_data.get("id")
         }
 
-@app.get("/sse")
+@app.post("/mcp")
+async def handle_mcp_post(request: Request):
+    """Handle MCP requests via standard HTTP POST - RECOMMENDED for n8n"""
+    try:
+        body = await request.body()
+        request_data = json.loads(body.decode())
+        response = await process_mcp_request(request_data)
+        return JSONResponse(content=response)
+        
+    except json.JSONDecodeError as e:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "jsonrpc": "2.0",
+                "error": {"code": -32700, "message": f"Parse error: {str(e)}"},
+                "id": None
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error handling MCP request: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "jsonrpc": "2.0",
+                "error": {"code": -32603, "message": f"Internal error: {str(e)}"},
+                "id": request_data.get("id") if 'request_data' in locals() else None
+            }
+        )
+
 @app.post("/sse")
 async def handle_sse_mcp(request: Request):
-    """Handle MCP requests via Server-Sent Events - n8n Compatible
-    
-    Supports both GET (for SSE connection) and POST (for messages)
-    """
-    method = request.method
-    logger.info(f"SSE connection: {method}")
+    """Handle MCP requests via Server-Sent Events - Alternative endpoint"""
+    logger.info("New SSE MCP connection")
     
     async def event_generator():
         try:
             body = await request.body()
             if body:
-                # POST with body - process the request
                 try:
                     request_data = json.loads(body.decode())
                     response = await process_mcp_request(request_data)
@@ -401,12 +428,12 @@ async def handle_sse_mcp(request: Request):
                     }
                     yield f"data: {json.dumps(error_response)}\n\n"
             else:
-                # GET or empty POST - send handshake only
+                # Send initial handshake for n8n compatibility
                 handshake = {
                     "type": "handshake",
                     "serverInfo": {
                         "name": "odoo-mcp-server",
-                        "version": "1.1.0"
+                        "version": "1.2.0"
                     },
                     "capabilities": {
                         "tools": True,
@@ -435,35 +462,6 @@ async def handle_sse_mcp(request: Request):
         }
     )
 
-@app.post("/mcp")
-async def handle_mcp_post(request: Request):
-    """Handle MCP requests via standard HTTP POST - n8n Compatible"""
-    try:
-        body = await request.body()
-        request_data = json.loads(body.decode())
-        response = await process_mcp_request(request_data)
-        return JSONResponse(content=response)
-        
-    except json.JSONDecodeError as e:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "jsonrpc": "2.0",
-                "error": {"code": -32700, "message": f"Parse error: {str(e)}"},
-                "id": None
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error handling MCP request: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "jsonrpc": "2.0",
-                "error": {"code": -32603, "message": f"Internal error: {str(e)}"},
-                "id": request_data.get("id") if 'request_data' in locals() else None
-            }
-        )
-
 if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
@@ -473,6 +471,10 @@ if __name__ == "__main__":
     logger.info(f"  ODOO_URL: {os.getenv('ODOO_URL', 'NOT SET')}")
     logger.info(f"  ODOO_DB: {os.getenv('ODOO_DB', 'NOT SET')}")
     logger.info(f"  ODOO_USERNAME: {os.getenv('ODOO_USERNAME', 'NOT SET')}")
+    logger.info("")
+    logger.info("For n8n, use these settings:")
+    logger.info("  Transport: HTTP Streamable")
+    logger.info("  URL: https://your-server.com/mcp")
     
     uvicorn.run(
         "app:app",
