@@ -9,6 +9,7 @@ A powerful Model Context Protocol (MCP) server for Odoo integration, redesigned 
 
 - **HTTP/SSE Transport**: Works remotely via HTTP instead of stdio
 - **n8n Compatible**: Designed to work with n8n's MCP client tool
+- **Flexible Authentication**: Supports both password and API key authentication
 - **EasyPanel Ready**: Optimized for EasyPanel deployment
 - **Complete Odoo Integration**: All original MCP tools and resources
 - **FastAPI Backend**: Modern, fast, and well-documented API
@@ -41,9 +42,21 @@ A powerful Model Context Protocol (MCP) server for Odoo integration, redesigned 
    ODOO_URL=https://your-odoo-instance.com
    ODOO_DB=your_database_name
    ODOO_USERNAME=your_odoo_username
+   
+   # Authentication Method 1: Password (traditional)
    ODOO_PASSWORD=your_odoo_password
+   
+   # Authentication Method 2: API Key (recommended)
+   # ODOO_API_KEY=your_api_key_here
+   
    PORT=8000
    ```
+   
+   **🔑 API Key vs Password Authentication:**
+   - **API Key (Recommended)**: More secure, can be revoked independently without changing password
+   - **Password**: Traditional authentication method
+   - **Priority**: If both are set, API Key takes priority
+   - **Generate API Keys**: In Odoo go to Settings > Users > Your User > Preferences > API Keys
 
 4. **Deploy and test:**
    - Your server will be available at: `https://your-app.easypanel.host`
@@ -61,7 +74,7 @@ A powerful Model Context Protocol (MCP) server for Odoo integration, redesigned 
 2. **Setup environment:**
    ```bash
    cp .env.example .env
-   # Edit .env with your Odoo credentials
+   # Edit .env with your Odoo credentials (use either password or api_key)
    ```
 
 3. **Run with Docker:**
@@ -74,6 +87,43 @@ A powerful Model Context Protocol (MCP) server for Odoo integration, redesigned 
    pip install -e .
    python app.py
    ```
+
+## 🔐 Authentication Methods
+
+This server supports two authentication methods:
+
+### Method 1: Password Authentication
+```env
+ODOO_URL=https://your-odoo.com
+ODOO_DB=your_database
+ODOO_USERNAME=admin
+ODOO_PASSWORD=your_password
+```
+
+### Method 2: API Key Authentication (Recommended)
+```env
+ODOO_URL=https://your-odoo.com
+ODOO_DB=your_database
+ODOO_USERNAME=admin
+ODOO_API_KEY=your_api_key_here
+```
+
+**How to generate an API Key in Odoo:**
+1. Log in to your Odoo instance
+2. Go to **Settings** > **Users & Companies** > **Users**
+3. Select your user
+4. Go to **Preferences** tab
+5. Scroll to **API Keys** section
+6. Click **New API Key**
+7. Give it a description and copy the generated key
+8. Use this key in your `ODOO_API_KEY` environment variable
+
+**Why use API Keys?**
+- ✅ More secure than passwords
+- ✅ Can be revoked independently
+- ✅ Can have specific scopes/permissions
+- ✅ No need to expose actual password
+- ✅ Easier to rotate credentials
 
 ## 🔧 n8n Integration
 
@@ -157,18 +207,26 @@ The server includes all original Odoo MCP tools:
 | `ODOO_URL` | Odoo instance URL | ✅ | `https://mycompany.odoo.com` |
 | `ODOO_DB` | Database name | ✅ | `mycompany` |
 | `ODOO_USERNAME` | Odoo username | ✅ | `admin` |
-| `ODOO_PASSWORD` | Odoo password | ✅ | `your_password` |
+| `ODOO_PASSWORD` | Odoo password | ⚠️ | `your_password` |
+| `ODOO_API_KEY` | Odoo API Key (recommended) | ⚠️ | `your_api_key` |
 | `HOST` | Server host | ❌ | `0.0.0.0` (default) |
 | `PORT` | Server port | ❌ | `8000` (default) |
+| `ODOO_TIMEOUT` | Connection timeout (seconds) | ❌ | `30` (default) |
+| `ODOO_VERIFY_SSL` | Verify SSL certificates | ❌ | `true` (default) |
 | `LOG_LEVEL` | Logging level | ❌ | `INFO` (default) |
+
+⚠️ **Note**: Either `ODOO_PASSWORD` or `ODOO_API_KEY` must be provided. If both are set, `ODOO_API_KEY` takes priority.
 
 ## 🚨 Security Considerations
 
 - **Never expose credentials** in your repository
 - **Use environment variables** for all sensitive data
+- **Prefer API Keys** over passwords for better security
 - **Configure CORS** appropriately for production
 - **Use HTTPS** in production deployments
 - **Consider API rate limiting** for public endpoints
+- **Rotate API keys** regularly
+- **Use separate API keys** for different environments (dev, staging, prod)
 
 ## 🐛 Troubleshooting
 
@@ -176,15 +234,20 @@ The server includes all original Odoo MCP tools:
 
 1. **Connection refused to Odoo:**
    - Verify `ODOO_URL` is correct and accessible
-   - Check Odoo credentials
+   - Check Odoo credentials (password or API key)
    - Ensure Odoo allows external API access
 
-2. **n8n can't connect:**
+2. **Authentication failed:**
+   - Verify your API key is active in Odoo
+   - Check that the username matches the API key owner
+   - Try using password authentication to isolate the issue
+
+3. **n8n can't connect:**
    - Verify the server is running and accessible
    - Check the SSE endpoint URL
    - Review CORS settings
 
-3. **Health check fails:**
+4. **Health check fails:**
    - Check if all environment variables are set
    - Verify Odoo connection
    - Review server logs
