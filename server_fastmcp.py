@@ -2,13 +2,13 @@
 """
 MCP Server for Odoo using official MCP SDK
 Compatible with Claude Web, Claude Desktop, and n8n
+Uses HTTP Streamable transport (recommended over SSE)
 """
 
 import os
 import logging
 
 # Configure port from environment BEFORE importing FastMCP
-# This is the correct way according to FastMCP 2.0 documentation
 os.environ.setdefault("FASTMCP_SERVER_PORT", os.getenv("PORT", "8000"))
 os.environ.setdefault("FASTMCP_SERVER_HOST", os.getenv("HOST", "0.0.0.0"))
 
@@ -201,10 +201,11 @@ if __name__ == "__main__":
     logger.info(f"  ODOO_USERNAME: {os.getenv('ODOO_USERNAME', 'NOT SET')}")
     logger.info("")
     logger.info("Endpoints:")
+    logger.info(f"  HTTP (MCP): http://{host}:{port}/mcp")
     logger.info(f"  SSE: http://{host}:{port}/sse")
     logger.info("")
     logger.info("For Claude Web/Desktop, use:")
-    logger.info(f"  URL: https://n8n-odoo.e2gone.easypanel.host/sse")
+    logger.info(f"  URL: https://n8n-odoo.e2gone.easypanel.host/mcp")
     logger.info("")
     logger.info("Registered tools:")
     logger.info("  - search_employee")
@@ -215,6 +216,6 @@ if __name__ == "__main__":
     logger.info("  - analyze_sales_performance")
     logger.info("=" * 60)
     
-    # Run with SSE transport
-    # Port and host are configured via FASTMCP_SERVER_* environment variables
-    mcp.run(transport="sse")
+    # Run with HTTP Streamable transport (recommended over SSE)
+    # This is compatible with Claude Web and Desktop
+    mcp.run(transport="http")
