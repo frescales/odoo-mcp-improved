@@ -1,11 +1,14 @@
 # Core MCP and Odoo dependencies
-mcp>=0.1.1
+mcp>=1.1.0
 requests>=2.31.0
 pypi-xmlrpc==2020.12.3
 
-# HTTP server dependencies
+# HTTP server dependencies (for custom app.py)
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
+
+# SSE support for FastMCP
+sse-starlette>=1.6.5
 
 # Additional utilities
 python-dotenv>=1.0.0
