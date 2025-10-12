@@ -374,83 +374,58 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
             "id": request_data.get("id")
         }
 
-async def sse_event_generator(request: Request):
-    """Generator for SSE events - handles both GET and POST"""
-    try:
-        # Check if there's a body (POST request)
-        body = await request.body()
-        
-        if body:
-            # POST request with body
-            try:
-                request_data = json.loads(body.decode())
-                response = await process_mcp_request(request_data)
-                yield f"data: {json.dumps(response)}\n\n"
-            except json.JSONDecodeError as e:
-                error_response = {
-                    "jsonrpc": "2.0",
-                    "error": {"code": -32700, "message": f"Parse error: {str(e)}"},
-                    "id": None
-                }
-                yield f"data: {json.dumps(error_response)}\n\n"
-        else:
-            # GET request - send handshake and keep connection alive
-            handshake = {
-                "type": "handshake",
-                "serverInfo": {
-                    "name": "odoo-mcp-server",
-                    "version": "1.1.0"
-                },
-                "capabilities": {
-                    "tools": True,
-                    "resources": True
-                }
-            }
-            yield f"data: {json.dumps(handshake)}\n\n"
-            
-            # Keep connection alive
-            while True:
-                await asyncio.sleep(30)  # Send keepalive every 30 seconds
-                yield f": keepalive\n\n"
-        
-    except Exception as e:
-        logger.error(f"SSE connection error: {e}")
-        error_response = {
-            "jsonrpc": "2.0",
-            "error": {"code": -32603, "message": f"Connection error: {str(e)}"},
-            "id": None
-        }
-        yield f"data: {json.dumps(error_response)}\n\n"
-
-@app.get("/sse")
-async def handle_sse_get(request: Request):
-    """Handle SSE GET requests for connection establishment"""
-    logger.info("New SSE GET connection")
-    return StreamingResponse(
-        sse_event_generator(request),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
-        }
-    )
-
 @app.post("/sse")
-async def handle_sse_post(request: Request):
-    """Handle SSE POST requests for sending messages"""
-    logger.info("New SSE POST request")
+async def handle_sse_mcp(request: Request):
+    """Handle MCP requests via Server-Sent Events - n8n Compatible"""
+    logger.info("New SSE MCP connection")
+    
+    async def event_generator():
+        try:
+            body = await request.body()
+            if body:
+                try:
+                    request_data = json.loads(body.decode())
+                    response = await process_mcp_request(request_data)
+                    yield f"data: {json.dumps(response)}\n\n"
+                except json.JSONDecodeError as e:
+                    error_response = {
+                        "jsonrpc": "2.0",
+                        "error": {"code": -32700, "message": f"Parse error: {str(e)}"},
+                        "id": None
+                    }
+                    yield f"data: {json.dumps(error_response)}\n\n"
+            else:
+                # Send initial handshake for n8n compatibility
+                handshake = {
+                    "type": "handshake",
+                    "serverInfo": {
+                        "name": "odoo-mcp-server",
+                        "version": "1.1.0"
+                    },
+                    "capabilities": {
+                        "tools": True,
+                        "resources": True
+                    }
+                }
+                yield f"data: {json.dumps(handshake)}\n\n"
+            
+        except Exception as e:
+            logger.error(f"SSE connection error: {e}")
+            error_response = {
+                "jsonrpc": "2.0",
+                "error": {"code": -32603, "message": f"Connection error: {str(e)}"},
+                "id": None
+            }
+            yield f"data: {json.dumps(error_response)}\n\n"
+    
     return StreamingResponse(
-        sse_event_generator(request),
+        event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "*",
-            "X-Accel-Buffering": "no",
         }
     )
 
