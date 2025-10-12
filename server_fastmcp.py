@@ -180,18 +180,36 @@ def analyze_sales_performance(params: dict) -> str:
         return json.dumps({"error": str(e)})
 
 if __name__ == "__main__":
+    # Get port from environment (EasyPanel sets this)
+    port = int(os.getenv("PORT", "8000"))
+    host = os.getenv("HOST", "0.0.0.0")
+    
+    logger.info("=" * 60)
     logger.info("Starting Odoo MCP Server with FastMCP")
+    logger.info("=" * 60)
+    logger.info(f"Host: {host}")
+    logger.info(f"Port: {port}")
+    logger.info("")
     logger.info("Environment check:")
     logger.info(f"  ODOO_URL: {os.getenv('ODOO_URL', 'NOT SET')}")
     logger.info(f"  ODOO_DB: {os.getenv('ODOO_DB', 'NOT SET')}")
     logger.info(f"  ODOO_USERNAME: {os.getenv('ODOO_USERNAME', 'NOT SET')}")
     logger.info("")
-    logger.info("For Claude Web/Desktop, use:")
-    logger.info("  URL: https://your-server.com/sse")
+    logger.info("Endpoints:")
+    logger.info(f"  SSE: http://{host}:{port}/sse")
     logger.info("")
-    logger.info("For n8n, configure MCP Client with:")
-    logger.info("  Transport: HTTP Streamable")
-    logger.info("  URL: https://your-server.com/sse")
+    logger.info("For Claude Web/Desktop, use:")
+    logger.info(f"  URL: https://n8n-odoo.e2gone.easypanel.host/sse")
+    logger.info("")
+    logger.info("Registered tools:")
+    logger.info("  - search_employee")
+    logger.info("  - search_holidays")
+    logger.info("  - execute_method")
+    logger.info("  - search_sales_orders")
+    logger.info("  - create_sales_order")
+    logger.info("  - analyze_sales_performance")
+    logger.info("=" * 60)
     
-    # Run with SSE transport for remote connections
-    mcp.run(transport="sse")
+    # Run with SSE transport
+    # FastMCP will handle SSE protocol automatically
+    mcp.run(transport="sse", host=host, port=port)
