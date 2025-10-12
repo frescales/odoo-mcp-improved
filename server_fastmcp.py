@@ -179,17 +179,7 @@ def analyze_sales_performance(params: dict) -> str:
         logger.error(f"Error analyzing sales performance: {e}")
         return json.dumps({"error": str(e)})
 
-# Get the ASGI app from FastMCP for SSE transport
-def get_app():
-    """Get the ASGI application for SSE transport"""
-    return mcp.get_asgi_app(path="/sse")
-
-# For Uvicorn to import
-app = get_app()
-
 if __name__ == "__main__":
-    import uvicorn
-    
     # Get port from environment (EasyPanel sets this)
     port = int(os.getenv("PORT", "8000"))
     host = os.getenv("HOST", "0.0.0.0")
@@ -220,10 +210,6 @@ if __name__ == "__main__":
     logger.info("  - analyze_sales_performance")
     logger.info("=" * 60)
     
-    # Run with Uvicorn
-    uvicorn.run(
-        app,
-        host=host,
-        port=port,
-        log_level="info"
-    )
+    # Run with SSE transport using the correct method
+    # FastMCP.run() handles SSE automatically when transport="sse"
+    mcp.run(transport="sse")
