@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 HTTP/SSE MCP Server for Odoo Integration
-Fully compatible with n8n MCP Client node
+Fully compatible with n8n MCP Client node and Claude Web connectors
 """
 
 import asyncio
@@ -134,7 +134,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Odoo MCP Server",
     description="HTTP/SSE MCP Server for Odoo Integration - n8n Compatible",
-    version="1.2.0",
+    version="1.3.0",
     lifespan=lifespan
 )
 
@@ -153,7 +153,7 @@ async def health_check():
     return {
         "status": "healthy", 
         "service": "odoo-mcp-server",
-        "version": "1.2.0"
+        "version": "1.3.0"
     }
 
 @app.get("/")
@@ -161,16 +161,16 @@ async def root():
     """Root endpoint with server info"""
     return {
         "service": "Odoo MCP Server",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "transport": "HTTP",
-        "compatibility": "n8n MCP Client",
+        "compatibility": "n8n MCP Client, Claude Web",
         "n8n_setup": {
             "transport": "HTTP Streamable",
             "url": "https://your-server.com/mcp"
         },
         "endpoints": {
             "health": "/health",
-            "mcp": "/mcp (recommended for n8n)",
+            "mcp": "/mcp (recommended)",
             "sse": "/sse (alternative)",
             "docs": "/docs"
         },
@@ -203,7 +203,7 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
                     },
                     "serverInfo": {
                         "name": "odoo-mcp-server",
-                        "version": "1.2.0"
+                        "version": "1.3.0"
                     }
                 }
             }
@@ -378,9 +378,38 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
             "id": request_data.get("id")
         }
 
+@app.get("/mcp")
+async def handle_mcp_get():
+    """Handle GET request for Claude Web connector discovery"""
+    logger.info("MCP GET request - Claude Web discovery")
+    
+    # Return server capabilities and available tools for Claude Web
+    tools_list = []
+    for tool_name, tool_config in AVAILABLE_TOOLS.items():
+        tools_list.append({
+            "name": tool_config["name"],
+            "description": tool_config["description"],
+            "inputSchema": tool_config["inputSchema"]
+        })
+    
+    return JSONResponse(content={
+        "serverInfo": {
+            "name": "odoo-mcp-server",
+            "version": "1.3.0",
+            "description": "Odoo MCP Server for Claude and n8n"
+        },
+        "capabilities": {
+            "tools": True,
+            "resources": True,
+            "prompts": False
+        },
+        "protocolVersion": "2024-11-05",
+        "tools": tools_list
+    })
+
 @app.post("/mcp")
 async def handle_mcp_post(request: Request):
-    """Handle MCP requests via standard HTTP POST - RECOMMENDED for n8n"""
+    """Handle MCP requests via standard HTTP POST - RECOMMENDED for n8n and Claude"""
     try:
         body = await request.body()
         request_data = json.loads(body.decode())
@@ -433,7 +462,7 @@ async def handle_sse_mcp(request: Request):
                     "type": "handshake",
                     "serverInfo": {
                         "name": "odoo-mcp-server",
-                        "version": "1.2.0"
+                        "version": "1.3.0"
                     },
                     "capabilities": {
                         "tools": True,
@@ -466,7 +495,7 @@ if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
     
-    logger.info(f"Starting n8n-compatible MCP server on {host}:{port}")
+    logger.info(f"Starting n8n and Claude Web compatible MCP server on {host}:{port}")
     logger.info("Environment check:")
     logger.info(f"  ODOO_URL: {os.getenv('ODOO_URL', 'NOT SET')}")
     logger.info(f"  ODOO_DB: {os.getenv('ODOO_DB', 'NOT SET')}")
@@ -474,6 +503,9 @@ if __name__ == "__main__":
     logger.info("")
     logger.info("For n8n, use these settings:")
     logger.info("  Transport: HTTP Streamable")
+    logger.info("  URL: https://your-server.com/mcp")
+    logger.info("")
+    logger.info("For Claude Web, add connector:")
     logger.info("  URL: https://your-server.com/mcp")
     
     uvicorn.run(
