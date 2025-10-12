@@ -6,6 +6,12 @@ Compatible with Claude Web, Claude Desktop, and n8n
 
 import os
 import logging
+
+# Configure port from environment BEFORE importing FastMCP
+# This is the correct way according to FastMCP 2.0 documentation
+os.environ.setdefault("FASTMCP_SERVER_PORT", os.getenv("PORT", "8000"))
+os.environ.setdefault("FASTMCP_SERVER_HOST", os.getenv("HOST", "0.0.0.0"))
+
 from mcp.server.fastmcp import FastMCP
 
 # Configure logging
@@ -180,9 +186,8 @@ def analyze_sales_performance(params: dict) -> str:
         return json.dumps({"error": str(e)})
 
 if __name__ == "__main__":
-    # Get port from environment (EasyPanel sets this)
-    port = int(os.getenv("PORT", "8000"))
-    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("FASTMCP_SERVER_PORT", "8000"))
+    host = os.getenv("FASTMCP_SERVER_HOST", "0.0.0.0")
     
     logger.info("=" * 60)
     logger.info("Starting Odoo MCP Server with FastMCP")
@@ -210,6 +215,6 @@ if __name__ == "__main__":
     logger.info("  - analyze_sales_performance")
     logger.info("=" * 60)
     
-    # Run with SSE transport using the correct method
-    # FastMCP.run() handles SSE automatically when transport="sse"
+    # Run with SSE transport
+    # Port and host are configured via FASTMCP_SERVER_* environment variables
     mcp.run(transport="sse")
