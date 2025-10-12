@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-MCP Server for Odoo using official MCP SDK
+MCP Server for Odoo using FastMCP 2.0
 Compatible with Claude Web, Claude Desktop, and n8n
-Uses HTTP Streamable transport (recommended over SSE)
+Uses HTTP Streamable transport (recommended)
 """
 
 import os
@@ -12,7 +12,8 @@ import logging
 os.environ.setdefault("FASTMCP_SERVER_PORT", os.getenv("PORT", "8000"))
 os.environ.setdefault("FASTMCP_SERVER_HOST", os.getenv("HOST", "0.0.0.0"))
 
-from mcp.server.fastmcp import FastMCP
+# Import FastMCP from the correct package
+from fastmcp import FastMCP
 
 # Configure logging
 logging.basicConfig(
@@ -190,7 +191,7 @@ if __name__ == "__main__":
     host = os.getenv("FASTMCP_SERVER_HOST", "0.0.0.0")
     
     logger.info("=" * 60)
-    logger.info("Starting Odoo MCP Server with FastMCP")
+    logger.info("Starting Odoo MCP Server with FastMCP 2.0")
     logger.info("=" * 60)
     logger.info(f"Host: {host}")
     logger.info(f"Port: {port}")
@@ -216,6 +217,6 @@ if __name__ == "__main__":
     logger.info("  - analyze_sales_performance")
     logger.info("=" * 60)
     
-    # Run with HTTP Streamable transport (recommended over SSE)
+    # Run with HTTP Streamable transport (recommended)
     # This is compatible with Claude Web and Desktop
     mcp.run(transport="http")
