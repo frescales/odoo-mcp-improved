@@ -374,15 +374,21 @@ async def process_mcp_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
             "id": request_data.get("id")
         }
 
+@app.get("/sse")
 @app.post("/sse")
 async def handle_sse_mcp(request: Request):
-    """Handle MCP requests via Server-Sent Events - n8n Compatible"""
-    logger.info("New SSE MCP connection")
+    """Handle MCP requests via Server-Sent Events - n8n Compatible
+    
+    Supports both GET (for SSE connection) and POST (for messages)
+    """
+    method = request.method
+    logger.info(f"SSE connection: {method}")
     
     async def event_generator():
         try:
             body = await request.body()
             if body:
+                # POST with body - process the request
                 try:
                     request_data = json.loads(body.decode())
                     response = await process_mcp_request(request_data)
@@ -395,7 +401,7 @@ async def handle_sse_mcp(request: Request):
                     }
                     yield f"data: {json.dumps(error_response)}\n\n"
             else:
-                # Send initial handshake for n8n compatibility
+                # GET or empty POST - send handshake only
                 handshake = {
                     "type": "handshake",
                     "serverInfo": {
